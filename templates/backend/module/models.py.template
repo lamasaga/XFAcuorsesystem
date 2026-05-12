@@ -1,0 +1,36 @@
+"""
+{{ModuleName}} 数据模型
+模块: {{module_name}}
+"""
+from datetime import datetime
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, Text, ForeignKey
+from sqlalchemy.orm import relationship
+from app.core.database import Base
+
+
+class {{ModelName}}(Base):
+    """{{ModelNameCN}} 模型"""
+    
+    __tablename__ = "{{table_name}}"
+    
+    # 主键
+    id = Column(Integer, primary_key=True, index=True, comment="主键ID")
+    
+    # 基本字段 (根据实际需求修改)
+    name = Column(String(100), nullable=False, comment="名称")
+    code = Column(String(50), unique=True, index=True, comment="编号")
+    description = Column(Text, comment="描述")
+    
+    # 状态字段
+    is_active = Column(Boolean, default=True, comment="是否启用")
+    is_deleted = Column(Boolean, default=False, comment="是否删除")
+    
+    # 时间戳
+    created_at = Column(DateTime, default=datetime.utcnow, comment="创建时间")
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, comment="更新时间")
+    
+    # 关联关系 (根据实际需求添加)
+    # items = relationship("RelatedModel", back_populates="{{module_name}}")
+    
+    def __repr__(self):
+        return f"<{{ModelName}}(id={self.id}, name={self.name})>"

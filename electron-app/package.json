@@ -1,0 +1,72 @@
+{
+  "name": "schedule-system",
+  "version": "1.0.0",
+  "description": "智能排课系统 - 桌面版",
+  "main": "main.js",
+  "author": "XFA",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "build:win": "electron-builder --win",
+    "build:mac": "electron-builder --mac",
+    "build:linux": "electron-builder --linux"
+  },
+  "dependencies": {
+    "electron-is-dev": "^2.0.0"
+  },
+  "devDependencies": {
+    "electron": "^28.0.0",
+    "electron-builder": "^24.9.1"
+  },
+  "build": {
+    "appId": "com.xfa.schedule-system",
+    "productName": "智能排课系统",
+    "directories": {
+      "output": "../dist-electron"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "loading.html",
+      "icon.*"
+    ],
+    "extraResources": [
+      {
+        "from": "../frontend/dist",
+        "to": "frontend",
+        "filter": ["**/*"]
+      },
+      {
+        "from": "../backend-dist",
+        "to": "backend",
+        "filter": ["**/*"]
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        }
+      ],
+      "icon": "icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "installerLanguages": ["zh_CN", "en_US"],
+      "language": "2052",
+      "shortcutName": "智能排课系统",
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    },
+    "mac": {
+      "target": ["dmg"],
+      "icon": "icon.icns"
+    },
+    "linux": {
+      "target": ["AppImage"],
+      "icon": "icon.png"
+    }
+  }
+}
