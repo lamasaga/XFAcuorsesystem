@@ -2,6 +2,8 @@
 
 > 基于 FastAPI + PostgreSQL 的后端服务
 
+　　对应 GitHub 仓库目录名：**[XFAcuorsesystem](https://github.com/lamasaga/XFAcuorsesystem)**（克隆后 `cd XFAcuorsesystem/backend` 进入本目录）。
+
 ---
 
 ## 环境要求

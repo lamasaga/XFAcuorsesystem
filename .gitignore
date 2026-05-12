@@ -29,11 +29,22 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 
-# Electron（保留源码，忽略依赖与构建产物）
-electron-app/node_modules/
-electron-app/dist/
+# 桌面端 / 本地打包（上线仓库不包含）
+electron-app/
 dist-electron/
 backend-dist/
+build-desktop.bat
+quick-start.bat
+backend/run_desktop.py
+backend/run_desktop.spec
+
+# 开发工具与本地杂项（不包含在部署仓库）
+.cursorrules
+.obsidian/
+notebooks/
+templates/
+Pasted image*.png
+/package-lock.json
 
 # OS / IDE
 .DS_Store
