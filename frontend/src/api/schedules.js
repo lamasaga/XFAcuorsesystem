@@ -178,3 +178,13 @@ export function validateSchedule(scheduleId, classId = null) {
   if (classId) params.class_id = classId
   return request.get(`/schedules/${scheduleId}/validate`, { params })
 }
+
+/**
+ * 获取学生个人课表
+ * @param {number} scheduleId - 课表 ID
+ * @param {number} studentId - 学生 ID
+ * @returns {Promise}
+ */
+export function getStudentTimetable(scheduleId, studentId) {
+  return request.get(`/schedules/${scheduleId}/by-student/${studentId}`)
+}

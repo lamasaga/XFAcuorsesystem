@@ -14,6 +14,7 @@
       </div>
       <div class="toolbar-right">
         <el-button @click="showImportDialog = true"><el-icon><Upload /></el-icon>导入</el-button>
+        <el-button type="warning" @click="openPromoteDialog"><el-icon><TopRight /></el-icon>一键升班</el-button>
         <el-button type="primary" @click="openAddDialog"><el-icon><Plus /></el-icon>添加班级</el-button>
       </div>
     </div>
@@ -194,22 +195,52 @@
     </el-dialog>
     
     <!-- 导入对话框 -->
-    <el-dialog v-model="showImportDialog" title="导入班级数据" width="500px">
-      <el-upload
-        drag
-        action="#"
-        :auto-upload="false"
-        accept=".xlsx,.xls,.csv"
-      >
-        <el-icon class="el-icon--upload"><Upload /></el-icon>
-        <div class="el-upload__text">将文件拖到此处，或<em>点击上传</em></div>
-        <template #tip>
-          <div class="el-upload__tip">支持 .xlsx, .xls, .csv 格式</div>
-        </template>
-      </el-upload>
+    <ExcelImportDialog
+      v-model="showImportDialog"
+      title="导入班级数据"
+      :template-url="getClassImportTemplateUrl('xlsx')"
+      :import-api="importClassesFile"
+      @success="loadClasses"
+    />
+
+    <!-- 一键升班对话框 -->
+    <el-dialog v-model="showPromoteDialog" title="一键升班" width="520px">
+      <div class="promote-content">
+        <el-alert
+          type="warning"
+          :closable="false"
+          show-icon
+        >
+          <template #title>
+            <span>此操作将把选定年级的所有班级升级到下一年级，同时更新班级内所有学生的年级。</span>
+          </template>
+        </el-alert>
+        
+        <div class="promote-section">
+          <div class="promote-label">选择要升级的年级：</div>
+          <el-checkbox-group v-model="promoteGrades" class="promote-grades">
+            <el-checkbox v-for="g in allGrades" :key="g.key" :value="g.key" :label="g.name" />
+          </el-checkbox-group>
+          <div class="promote-hint">留空则默认升级所有非毕业年级（PK ~ G10）</div>
+        </div>
+
+        <div class="promote-preview" v-if="promotePreview.length > 0">
+          <div class="promote-label">将要升级的班级预览：</div>
+          <el-table :data="promotePreview" size="small" max-height="240">
+            <el-table-column prop="oldName" label="当前名称" width="120" />
+            <el-table-column prop="newName" label="升级后" width="120" />
+            <el-table-column prop="studentCount" label="学生数" width="80" />
+          </el-table>
+        </div>
+        <div class="promote-empty" v-else>
+          <el-empty description="未选择年级或该年级暂无班级" :image-size="80" />
+        </div>
+      </div>
       <template #footer>
-        <el-button @click="showImportDialog = false">取消</el-button>
-        <el-button type="primary">确认导入</el-button>
+        <el-button @click="showPromoteDialog = false">取消</el-button>
+        <el-button type="warning" @click="executePromote" :disabled="promotePreview.length === 0">
+          确认升班
+        </el-button>
       </template>
     </el-dialog>
   </div>
@@ -227,11 +258,12 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Upload, Plus, User, Location, More, Edit, Calendar, Delete, Search, School, OfficeBuilding } from '@element-plus/icons-vue'
+import { Upload, Plus, More, Edit, Calendar, Delete, School, OfficeBuilding, TopRight } from '@element-plus/icons-vue'
 // 导入 API
-import { getClasses, createClass, updateClass, deleteClass as deleteClassApi } from '@/api/classes'
+import { getClasses, createClass, updateClass, deleteClass as deleteClassApi, getClassImportTemplateUrl, importClassesFile, promoteClasses } from '@/api/classes'
 import { getTeachers } from '@/api/teachers'
 import { getScheduleList } from '@/api/schedules'
+import ExcelImportDialog from '@/components/ExcelImportDialog.vue'
 
 const router = useRouter()
 
@@ -243,9 +275,83 @@ const filterType = ref('')
 const filterDepartment = ref('')
 const showAddDialog = ref(false)
 const showImportDialog = ref(false)
+const showPromoteDialog = ref(false)
 const editingClass = ref(null)
 const loading = ref(false)
 const useMockData = ref(false)
+
+// 一键升班
+const promoteGrades = ref([])
+const allGrades = [
+  { key: 'PK', name: 'PK (学前班)' },
+  { key: 'KG', name: 'KG (幼儿园)' },
+  { key: 'G1', name: 'G1 (一年级)' },
+  { key: 'G2', name: 'G2 (二年级)' },
+  { key: 'G3', name: 'G3 (三年级)' },
+  { key: 'G4', name: 'G4 (四年级)' },
+  { key: 'G5', name: 'G5 (五年级)' },
+  { key: 'G6', name: 'G6 (六年级)' },
+  { key: 'G7', name: 'G7 (七年级)' },
+  { key: 'G8', name: 'G8 (八年级)' },
+  { key: 'G9', name: 'G9 (九年级)' },
+  { key: 'G10', name: 'G10 (十年级)' },
+  { key: 'G11', name: 'G11 (十一年级)' },
+  { key: 'G12', name: 'G12 (十二年级/毕业)' },
+]
+
+const GRADE_NEXT = {
+  PK: 'KG', KG: 'G1', G1: 'G2', G2: 'G3', G3: 'G4', G4: 'G5',
+  G5: 'G6', G6: 'G7', G7: 'G8', G8: 'G9', G9: 'G10', G10: 'G11', G11: 'G12'
+}
+
+const promotePreview = computed(() => {
+  const grades = promoteGrades.value.length > 0 ? promoteGrades.value : Object.keys(GRADE_NEXT)
+  const preview = []
+  for (const grade of grades) {
+    const classesInGrade = classes.value.filter(c => c.grade === grade)
+    for (const cls of classesInGrade) {
+      const newGrade = GRADE_NEXT[grade]
+      if (!newGrade) continue
+      // 模拟名称更新：将年级部分替换
+      const newName = cls.name.replace(new RegExp(grade, 'i'), newGrade)
+      preview.push({
+        classId: cls.id,
+        oldName: cls.name,
+        newName: newName,
+        newGrade: newGrade,
+        studentCount: '-' // 前端不知道学生数
+      })
+    }
+  }
+  return preview
+})
+
+const openPromoteDialog = () => {
+  promoteGrades.value = []
+  showPromoteDialog.value = true
+}
+
+const executePromote = async () => {
+  try {
+    await ElMessageBox.confirm(
+      `确定要升级 ${promotePreview.value.length} 个班级吗？此操作不可撤销。`,
+      '确认升班',
+      { confirmButtonText: '确定升班', cancelButtonText: '取消', type: 'warning' }
+    )
+    
+    const payload = promoteGrades.value.length > 0 ? { grades: promoteGrades.value } : {}
+    const res = await promoteClasses(payload)
+    
+    ElMessage.success(res.message || '升班成功')
+    showPromoteDialog.value = false
+    await loadClasses()
+  } catch (e) {
+    if (e !== 'cancel') {
+      const detail = e.response?.data?.detail || e.message || '未知错误'
+      ElMessage.error('升班失败: ' + detail)
+    }
+  }
+}
 
 // 年级配置
 const primaryGrades = [
@@ -314,7 +420,8 @@ const loadClasses = async () => {
       page: 1,
       page_size: 200,  // 获取所有班级
       type: filterType.value || undefined,
-      department: filterDepartment.value || undefined
+      department: filterDepartment.value || undefined,
+      search: searchQuery.value || undefined
     })
     
     useMockData.value = false
@@ -335,6 +442,10 @@ const loadClasses = async () => {
     }
     if (filterDepartment.value) {
       filtered = filtered.filter(c => c.department === filterDepartment.value)
+    }
+    if (searchQuery.value) {
+      const query = searchQuery.value.toLowerCase()
+      filtered = filtered.filter(c => c.name.toLowerCase().includes(query))
     }
     
     classes.value = filtered.map(c => ({
@@ -658,5 +769,16 @@ const saveClass = async () => {
     .label { color: var(--text-secondary); font-size: 13px; }
     .value { font-weight: 600; color: var(--primary-color); }
   }
+}
+
+.promote-content {
+  .promote-section {
+    margin-top: 16px;
+    .promote-label { font-size: 14px; font-weight: 600; color: var(--text-primary); margin-bottom: 10px; }
+    .promote-grades { display: flex; flex-wrap: wrap; gap: 8px; }
+    .promote-hint { font-size: 12px; color: var(--text-muted); margin-top: 8px; }
+  }
+  .promote-preview { margin-top: 16px; }
+  .promote-empty { margin-top: 16px; }
 }
 </style>

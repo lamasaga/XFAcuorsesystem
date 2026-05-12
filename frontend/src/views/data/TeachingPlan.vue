@@ -184,7 +184,8 @@ const gradeConfig = [
   { value: 'G8', label: 'G8 (八年级)' },
   { value: 'G9', label: 'G9 (九年级)' },
   { value: 'G10', label: 'G10 (十年级)' },
-  { value: 'G11', label: 'G11 (十一年级)' }
+  { value: 'G11', label: 'G11 (十一年级)' },
+  { value: 'G12', label: 'G12 (十二年级)' }
 ]
 
 // 从班级数据中获取实际存在的年级

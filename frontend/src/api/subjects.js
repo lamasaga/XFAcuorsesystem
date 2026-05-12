@@ -5,6 +5,14 @@
  */
 
 import request from './index'
+import axios from 'axios'
+
+function getBaseURL() {
+  if (import.meta.env.VITE_API_BASE) {
+    return import.meta.env.VITE_API_BASE
+  }
+  return 'http://localhost:8000/api/v1'
+}
 
 /**
  * 获取科目列表
@@ -45,4 +53,20 @@ export function updateSubject(id, data) {
  */
 export function deleteSubject(id) {
   return request.delete(`/subjects/${id}`)
+}
+
+// ========== 批量导入/模板 ==========
+
+export function getSubjectImportTemplateUrl(format = 'xlsx') {
+  const fmt = (format || 'xlsx').toLowerCase()
+  return `${getBaseURL()}/subjects/import/template?format=${encodeURIComponent(fmt)}`
+}
+
+export async function importSubjectsFile(file) {
+  const formData = new FormData()
+  formData.append('file', file)
+  const res = await axios.post(`${getBaseURL()}/subjects/import`, formData, {
+    headers: { 'Content-Type': 'multipart/form-data' }
+  })
+  return res.data
 }

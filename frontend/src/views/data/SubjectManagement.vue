@@ -5,6 +5,7 @@
         <el-input v-model="searchQuery" placeholder="搜索科目" prefix-icon="Search" clearable style="width: 200px" />
       </div>
       <div class="toolbar-right">
+        <el-button @click="showImportDialog = true"><el-icon><Upload /></el-icon>导入</el-button>
         <el-button type="primary" @click="openAddDialog"><el-icon><Plus /></el-icon>添加科目</el-button>
       </div>
     </div>
@@ -26,7 +27,7 @@
         </div>
         <div class="subject-tags">
           <el-tag v-if="subject.isMain" type="danger" size="small">主科</el-tag>
-          <el-tag v-if="subject.needContinuous" type="warning" size="small">连堂</el-tag>
+
         </div>
         <el-dropdown trigger="click">
           <el-button class="more-btn" link><el-icon><More /></el-icon></el-button>
@@ -112,6 +113,15 @@
         <el-button type="primary" @click="saveSubject">保存</el-button>
       </template>
     </el-dialog>
+
+    <!-- 导入对话框 -->
+    <ExcelImportDialog
+      v-model="showImportDialog"
+      title="导入科目数据"
+      :template-url="getSubjectImportTemplateUrl('xlsx')"
+      :import-api="importSubjectsFile"
+      @success="loadSubjects"
+    />
   </div>
 </template>
 
@@ -126,13 +136,15 @@
  */
 import { ref, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, More, Edit, Delete, Reading, Basketball, Headset, Picture, Cpu, Flag } from '@element-plus/icons-vue'
+import { Plus, More, Edit, Delete, Upload } from '@element-plus/icons-vue'
 // 导入 API
-import { getSubjects, createSubject, updateSubject, deleteSubject as deleteSubjectApi } from '@/api/subjects'
+import { getSubjects, createSubject, updateSubject, deleteSubject as deleteSubjectApi, getSubjectImportTemplateUrl, importSubjectsFile } from '@/api/subjects'
 import { getVenues } from '@/api/venues'
+import ExcelImportDialog from '@/components/ExcelImportDialog.vue'
 
 const searchQuery = ref('')
 const showAddDialog = ref(false)
+const showImportDialog = ref(false)
 const editingSubject = ref(null)
 const loading = ref(false)
 const useMockData = ref(false)
@@ -162,7 +174,8 @@ const gradeOptions = [
   { value: 'G8', label: 'G8' },
   { value: 'G9', label: 'G9' },
   { value: 'G10', label: 'G10' },
-  { value: 'G11', label: 'G11' }
+  { value: 'G11', label: 'G11' },
+  { value: 'G12', label: 'G12' }
 ]
 
 // 科目数据

@@ -49,6 +49,10 @@ from app.modules.layers.router import router as layers_router
 from app.modules.venues.router import router as venues_router
 from app.modules.schedules.router import router as schedules_router
 from app.modules.stats.router import router as stats_router
+from app.modules.students.router import router as students_router
+from app.modules.alevel_subjects.router import router as alevel_subjects_router
+from app.modules.course_selections.router import router as course_selections_router
+from app.modules.course_classes.router import router as course_classes_router
 
 
 # -----------------------------------------
@@ -154,6 +158,30 @@ app.include_router(
     tags=["统计数据"]
 )
 
+app.include_router(
+    students_router,
+    prefix=f"{settings.API_PREFIX}/students",
+    tags=["学生管理"]
+)
+
+app.include_router(
+    alevel_subjects_router,
+    prefix=f"{settings.API_PREFIX}/alevel-subjects",
+    tags=["A-Level科目"]
+)
+
+app.include_router(
+    course_selections_router,
+    prefix=f"{settings.API_PREFIX}/course-selections",
+    tags=["选课管理"]
+)
+
+app.include_router(
+    course_classes_router,
+    prefix=f"{settings.API_PREFIX}/course-classes",
+    tags=["课程班管理"]
+)
+
 
 
 
@@ -172,6 +200,9 @@ async def startup():
     print("=" * 50)
     print(f"[启动] {settings.APP_NAME} 正在启动...")
     print("=" * 50)
+    
+    # 创建数据库表（如果不存在）
+    Base.metadata.create_all(bind=engine)
     
     # 打印所有路由
     print("[路由] 已注册的 API 路由:")

@@ -1,9 +1,12 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, File, UploadFile
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from typing import List, Optional
 from app.core.dependencies import get_db
+from app.core.importer import create_import_response
 from . import schemas, crud, models
+from . import service_import as import_service
 from app.modules.tasks.models import TeachingTask
 from app.modules.classes.models import Class as ClassModel
 
@@ -109,12 +112,13 @@ def serialize_layer_group(group: models.LayerGroup) -> dict:
 
 @router.get("/", response_model=dict)
 def read_layer_groups(
-    skip: int = 0, 
-    limit: int = 100,
+    page: int = Query(1, ge=1, description="页码"),
+    page_size: int = Query(100, ge=1, le=500, description="每页数量"),
     db: Session = Depends(get_db)
 ):
     """获取分层组列表"""
-    groups = crud.get_layer_groups(db, skip=skip, limit=limit)
+    skip = (page - 1) * page_size
+    groups = crud.get_layer_groups(db, skip=skip, limit=page_size)
     # 获取真实总数
     total = db.query(func.count(models.LayerGroup.id)).scalar()
     # 序列化所有分层组
@@ -124,9 +128,59 @@ def read_layer_groups(
         "message": "success",
         "data": {
             "items": items,
-            "total": total
+            "total": total,
+            "page": page,
+            "page_size": page_size
         }
     }
+
+
+# ── 导入导出 ── 必须在 /{group_id} 之前注册 ───────────
+
+@router.get("/import/template", response_model=None)
+async def download_import_template(format: str = Query("xlsx", description="模板格式：xlsx/csv")):
+    """下载分层课程导入模板"""
+    fmt = (format or "xlsx").lower()
+    if fmt not in {"xlsx", "csv"}:
+        raise HTTPException(status_code=400, detail="format 仅支持 xlsx 或 csv")
+
+    if fmt == "xlsx":
+        content = import_service.build_template_xlsx()
+        filename = "layers_import_template.xlsx"
+        media_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    else:
+        content = import_service.build_template_csv()
+        filename = "layers_import_template.csv"
+        media_type = "text/csv; charset=utf-8"
+
+    return StreamingResponse(
+        iter([content]),
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.post("/import", response_model=dict)
+async def import_layers(
+    file: UploadFile = File(..., description="xlsx/csv 文件"),
+    db: Session = Depends(get_db),
+):
+    """批量导入分层/合班课程"""
+    content = await file.read()
+    rows, parse_errors = import_service.parse_import_file(file.filename or "", content)
+    if parse_errors:
+        return {
+            "code": 400,
+            "message": "导入失败：文件解析错误",
+            "data": {
+                "created": 0, "updated": 0, "skipped": 0,
+                "failed": len(parse_errors),
+                "errors": [{"rowNumber": e.row_number, "identifier": e.identifier, "message": e.message} for e in parse_errors],
+            },
+        }
+
+    result = import_service.import_layers_from_rows(db, rows)
+    return create_import_response(result)
 
 
 @router.get("/{group_id}", response_model=dict)

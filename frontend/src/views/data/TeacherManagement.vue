@@ -420,11 +420,10 @@
  */
 import { ref, computed, onMounted, watch } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Upload, Download, Plus, Edit, Delete, Search } from '@element-plus/icons-vue'
+import { Upload, Download, Plus, Edit, Delete } from '@element-plus/icons-vue'
 // 导入 API
 import { getTeachers, createTeacher, updateTeacher, deleteTeacher as deleteTeacherApi, getResearchGroups, createResearchGroup, deleteResearchGroup, getTeacherImportTemplateUrl, importTeachersFile } from '@/api/teachers'
 import { getClasses } from '@/api/classes'
-import { getSubjects } from '@/api/subjects'
 import { getTasksWithDetails } from '@/api/tasks'
 
 // ===========================================
@@ -665,10 +664,19 @@ onMounted(async () => {
   loadTeachers()
 })
 
+// 简单 debounce 实现
+function debounce(fn, delay) {
+  let timer = null
+  return function(...args) {
+    if (timer) clearTimeout(timer)
+    timer = setTimeout(() => fn.apply(this, args), delay)
+  }
+}
+
 // 监听筛选条件变化，重新加载数据
-watch([filterType, filterDepartment, searchQuery, currentPage, pageSize], () => {
+watch([filterType, filterDepartment, searchQuery, currentPage, pageSize], debounce(() => {
   loadTeachers()
-}, { debounce: 300 })
+}, 300))
 
 // 筛选后的数据 - 本地筛选（用于标签筛选，API 不支持标签筛选）
 const filteredTeachers = computed(() => {

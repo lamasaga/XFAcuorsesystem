@@ -80,6 +80,10 @@ SECONDARY_CLASSES = [
     # G11（十一年级）
     {"name": "I11-1", "type": "I", "grade": "G11", "class_no": 1},
     {"name": "I11-2", "type": "I", "grade": "G11", "class_no": 2},
+    
+    # G12（十二年级/毕业年级）
+    {"name": "I12-1", "type": "I", "grade": "G12", "class_no": 1},
+    {"name": "I12-2", "type": "I", "grade": "G12", "class_no": 2},
 ]
 
 

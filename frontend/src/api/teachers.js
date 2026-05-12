@@ -35,6 +35,7 @@ function getBaseURL() {
  * @param {string} params.type - 教师类型过滤（CN/EN）
  * @param {string} params.department - 学部过滤（PRIMARY/SECONDARY）
  * @param {string} params.search - 搜索关键词
+ * @param {number} params.max_weekly_hours - 每周最大课时过滤
  * @returns {Promise} API 响应
  * 
  * @example

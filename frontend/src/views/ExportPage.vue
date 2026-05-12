@@ -138,9 +138,9 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, watch, markRaw } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Download, View, CircleCheck, Document, Grid, Picture, Link } from '@element-plus/icons-vue'
+import { Download, View, CircleCheck, Document, Grid, Link } from '@element-plus/icons-vue'
 import { getScheduleList, getScheduleDetail, getClassTimetable, getTeacherTimetable } from '@/api/schedules'
 import { getClasses } from '@/api/classes'
 import { getTeachers } from '@/api/teachers'
@@ -155,16 +155,16 @@ const exportOptions = ref({
   scope: 'class',
   targetClass: null,
   targetTeacher: null,
-  format: 'xlsx',
+  format: 'csv',
   includeTeacher: true,
   includeTime: true
 })
 
 const formatOptions = [
-  { key: 'xlsx', name: 'Excel 文件', ext: '.xlsx', icon: 'Grid', color: '#16a34a', supported: true },
-  { key: 'csv', name: 'CSV 文件', ext: '.csv', icon: 'Document', color: '#2563eb', supported: true },
-  { key: 'pdf', name: 'PDF 文件', ext: '.pdf', icon: 'Document', color: '#dc2626', supported: false },
-  { key: 'html', name: '网页文件', ext: '.html', icon: 'Link', color: '#7c3aed', supported: false }
+  { key: 'xlsx', name: 'Excel 文件', ext: '.xlsx', icon: markRaw(Grid), color: '#16a34a', supported: false },
+  { key: 'csv', name: 'CSV 文件', ext: '.csv', icon: markRaw(Document), color: '#2563eb', supported: true },
+  { key: 'pdf', name: 'PDF 文件', ext: '.pdf', icon: markRaw(Document), color: '#dc2626', supported: false },
+  { key: 'html', name: '网页文件', ext: '.html', icon: markRaw(Link), color: '#7c3aed', supported: false }
 ]
 
 // 预览数据

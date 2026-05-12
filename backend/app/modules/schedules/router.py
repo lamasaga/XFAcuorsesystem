@@ -7,12 +7,16 @@ from app.core.dependencies import get_db
 from app.engine.core import ScheduleEngine
 from app.engine.solver import DEFAULT_SOFT_CONFIG
 from . import models
-from .schemas import ScheduleRequest
+from .schemas import ScheduleRequest, ScheduleConfigUpdate
 from ..teachers.models import Teacher
 from ..classes.models import Class
 from ..subjects.models import Subject
 from ..venues.models import Venue
 from ..tasks.models import TeachingTask
+from ..students.models import Student
+from ..course_classes.models import CourseClass, CourseClassMember
+from ..course_selections.models import CourseSelection
+from ..alevel_subjects.models import AlevelSubject
 
 router = APIRouter(tags=["排课管理 (Schedule Management)"])
 
@@ -119,12 +123,12 @@ def get_schedule_config(db: Session = Depends(get_db)):
 
 @router.put("/config")
 def save_schedule_config(
-    body: dict,
+    body: ScheduleConfigUpdate,
     db: Session = Depends(get_db),
 ):
     """保存约束配置"""
-    config_data = body.get("config", {})
-    name = body.get("name", "自定义配置")
+    config_data = body.config
+    name = body.name or "自定义配置"
 
     # 将旧的活跃配置标为不活跃
     db.query(models.ScheduleConfig).filter(
@@ -444,6 +448,149 @@ def delete_schedule(schedule_id: int, db: Session = Depends(get_db)):
     db.delete(schedule)
     db.commit()
     return {"code": 200, "message": "课表已删除"}
+
+
+@router.get("/{schedule_id}/by-student/{student_id}")
+def get_student_timetable(
+    schedule_id: int, student_id: int, db: Session = Depends(get_db),
+):
+    """
+    获取指定学生的个人课表
+
+    包含两部分：
+    1. 行政班课程（从 schedule_items 获取）
+    2. A-Level 选修课程（从 course_classes.schedule_pattern 获取）
+    """
+    # 验证学生存在
+    student = db.query(Student).filter(
+        Student.id == student_id, Student.is_deleted == False
+    ).first()
+    if not student:
+        raise HTTPException(status_code=404, detail="学生不存在")
+
+    # 验证课表存在
+    schedule = db.query(models.Schedule).filter(
+        models.Schedule.id == schedule_id
+    ).first()
+    if not schedule:
+        raise HTTPException(status_code=404, detail="课表不存在")
+
+    timetable = {}
+
+    # ===== Part 1: 行政班课程 =====
+    if student.class_id:
+        class_items = db.query(models.ScheduleItem).filter(
+            models.ScheduleItem.schedule_id == schedule_id,
+            models.ScheduleItem.class_id == student.class_id,
+        ).all()
+
+        teacher_ids = {i.teacher_id for i in class_items if i.teacher_id}
+        subject_ids = {i.subject_id for i in class_items if i.subject_id}
+
+        teachers = {t.id: t.name for t in db.query(Teacher).filter(
+            Teacher.id.in_(teacher_ids)).all()} if teacher_ids else {}
+        subjects = {s.id: {"name": s.name, "color": s.color}
+                    for s in db.query(Subject).filter(
+                        Subject.id.in_(subject_ids)).all()} if subject_ids else {}
+
+        for item in class_items:
+            key = f"{item.day}-{item.period}"
+            si = subjects.get(item.subject_id, {"name": "", "color": "#ccc"})
+            timetable[key] = {
+                "item_id": item.id,
+                "subject_name": si["name"],
+                "subject_color": si["color"],
+                "teacher_name": teachers.get(item.teacher_id, ""),
+                "class_name": "",
+                "note": "行政班课程",
+                "is_locked": bool(item.is_locked),
+                "type": "homeroom",
+            }
+
+    # ===== Part 2: A-Level 选修课程 =====
+    # 查找学生已加入的所有课程班
+    enrolled_class_ids = db.query(CourseClassMember.course_class_id).filter(
+        CourseClassMember.student_id == student_id,
+        CourseClassMember.status == "ENROLLED",
+    ).all()
+    enrolled_class_ids = [r[0] for r in enrolled_class_ids]
+
+    if enrolled_class_ids:
+        course_classes = db.query(CourseClass).filter(
+            CourseClass.id.in_(enrolled_class_ids),
+            CourseClass.is_deleted == False,
+        ).all()
+
+        for cc in course_classes:
+            teacher_name = ""
+            if cc.teacher_id:
+                t = db.query(Teacher).filter(Teacher.id == cc.teacher_id).first()
+                teacher_name = t.name if t else ""
+
+            subject_name = cc.name
+            alevel_sub = db.query(AlevelSubject).filter(
+                AlevelSubject.id == cc.alevel_subject_id
+            ).first()
+            subject_color = "#8b5cf6"  # 默认紫色用于A-Level课程
+            if alevel_sub:
+                subject_name = alevel_sub.name
+
+            # 解析 schedule_pattern 中的时间槽
+            pattern = cc.schedule_pattern or {}
+            slots = []
+            if isinstance(pattern, dict):
+                # 支持多种格式
+                if "slots" in pattern and isinstance(pattern["slots"], list):
+                    slots = pattern["slots"]
+                elif "day" in pattern and "period" in pattern:
+                    slots = [pattern]
+
+            if slots:
+                for slot in slots:
+                    day = slot.get("day")
+                    period = slot.get("period")
+                    if day and period:
+                        key = f"{day}-{period}"
+                        # 如果同一时间段已有行政班课程，标记为冲突/叠加
+                        existing = timetable.get(key)
+                        if existing:
+                            # 叠加显示：保留行政班，增加A-Level标记
+                            existing["alevel_subject"] = subject_name
+                            existing["alevel_teacher"] = teacher_name
+                            existing["note"] = f"行政班: {existing['subject_name']} | A-Level: {subject_name}"
+                        else:
+                            timetable[key] = {
+                                "item_id": None,
+                                "subject_name": subject_name,
+                                "subject_color": subject_color,
+                                "teacher_name": teacher_name,
+                                "class_name": cc.name,
+                                "note": f"A-Level: {cc.name}",
+                                "is_locked": False,
+                                "type": "alevel",
+                            }
+            else:
+                # schedule_pattern 没有时间信息，放到特殊标记中
+                pass
+
+    # 获取学生行政班名称
+    class_name = ""
+    if student.class_id:
+        cls = db.query(Class).filter(Class.id == student.class_id).first()
+        class_name = cls.name if cls else ""
+
+    return {
+        "code": 200,
+        "data": {
+            "student_id": student_id,
+            "student_name": student.name,
+            "student_no": student.student_no,
+            "grade": student.grade,
+            "class_name": class_name,
+            "timetable": timetable,
+            "total_periods": len(timetable),
+        },
+    }
 
 
 @router.post("/{schedule_id}/swap")

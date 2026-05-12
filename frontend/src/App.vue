@@ -56,6 +56,16 @@
           <el-icon><Reading /></el-icon>
           科目 <strong>{{ stats.subjects }}</strong> 门
         </span>
+        <span class="status-divider">|</span>
+        <span class="status-item">
+          <el-icon><User /></el-icon>
+          A-Level学生 <strong>{{ stats.students }}</strong> 人
+        </span>
+        <span class="status-divider">|</span>
+        <span class="status-item">
+          <el-icon><School /></el-icon>
+          课程班 <strong>{{ stats.courseClasses }}</strong> 个
+        </span>
       </div>
     </footer>
   </div>
@@ -66,9 +76,11 @@ import { ref, computed, markRaw, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { 
   User, OfficeBuilding, Reading, Clock, HomeFilled, DataAnalysis,
-  SetUp, Refresh, Calendar, Download, Cpu
+  SetUp, Refresh, Calendar, Download, Cpu, Notebook, School
 } from '@element-plus/icons-vue'
 import { getOverviewStats } from '@/api/stats'
+import { getStudents } from '@/api/students'
+import { getCourseClasses } from '@/api/courseClasses'
 
 const route = useRoute()
 
@@ -76,6 +88,7 @@ const route = useRoute()
 const navItems = [
   { path: '/dashboard', title: '首页', icon: markRaw(HomeFilled) },
   { path: '/data', title: '数据管理', icon: markRaw(DataAnalysis) },
+  { path: '/alevel', title: 'A-Level', icon: markRaw(Notebook) },
   { path: '/constraints', title: '约束设置', icon: markRaw(SetUp) },
   { path: '/schedule', title: '自动排课', icon: markRaw(Refresh) },
   { path: '/timetable', title: '课表管理', icon: markRaw(Calendar) },
@@ -86,7 +99,9 @@ const navItems = [
 const stats = ref({
   teachers: 0,
   classes: 0,
-  subjects: 0
+  subjects: 0,
+  students: 0,
+  courseClasses: 0
 })
 
 /**
@@ -96,13 +111,25 @@ const loadFooterStats = async () => {
   try {
     const res = await getOverviewStats()
     const data = res.data
-    stats.value = {
-      teachers: data.teacher_count || 0,
-      classes: data.class_count || 0,
-      subjects: data.subject_count || 0
-    }
+    stats.value.teachers = data.teacher_count || 0
+    stats.value.classes = data.class_count || 0
+    stats.value.subjects = data.subject_count || 0
   } catch {
-    // 静默失败，保持默认值
+    // 静默失败
+  }
+  
+  try {
+    const studentRes = await getStudents({ page: 1, page_size: 1 })
+    stats.value.students = studentRes.data?.total || 0
+  } catch {
+    // 静默失败
+  }
+  
+  try {
+    const classRes = await getCourseClasses({ page: 1, page_size: 1 })
+    stats.value.courseClasses = classRes.data?.total || 0
+  } catch {
+    // 静默失败
   }
 }
 

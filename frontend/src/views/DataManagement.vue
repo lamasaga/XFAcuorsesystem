@@ -42,7 +42,7 @@
 </template>
 
 <script setup>
-import { ref, watch, onMounted } from 'vue'
+import { ref, watch, onMounted, markRaw } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { User, OfficeBuilding, Reading, Document, School, Share, Location } from '@element-plus/icons-vue'
 import TeacherManagement from './data/TeacherManagement.vue'
@@ -57,7 +57,7 @@ const activeType = ref('teachers')
 const dataCards = ref([
   { 
     type: 'teachers',
-    icon: 'User', 
+    icon: markRaw(User), 
     title: '教师管理', 
     count: 0, 
     unit: '人',
@@ -67,7 +67,7 @@ const dataCards = ref([
   },
   { 
     type: 'classes',
-    icon: 'OfficeBuilding', 
+    icon: markRaw(OfficeBuilding), 
     title: '班级管理', 
     count: 0, 
     unit: '个',
@@ -77,7 +77,7 @@ const dataCards = ref([
   },
   { 
     type: 'subjects',
-    icon: 'Reading', 
+    icon: markRaw(Reading), 
     title: '科目管理', 
     count: 0, 
     unit: '门',
@@ -87,7 +87,7 @@ const dataCards = ref([
   },
   { 
     type: 'plan',
-    icon: 'Document', 
+    icon: markRaw(Document), 
     title: '行政课程', 
     count: 0, 
     unit: '个任务',
@@ -97,7 +97,7 @@ const dataCards = ref([
   },
   { 
     type: 'layers',
-    icon: 'Share', 
+    icon: markRaw(Share), 
     title: '分层课程', 
     count: 0, 
     unit: '组',
@@ -107,7 +107,7 @@ const dataCards = ref([
   },
   { 
     type: 'venues',
-    icon: 'Location', 
+    icon: markRaw(Location), 
     title: '场地资源', 
     count: 0, 
     unit: '个',

@@ -5,6 +5,14 @@
  */
 
 import request from './index'
+import axios from 'axios'
+
+function getBaseURL() {
+  if (import.meta.env.VITE_API_BASE) {
+    return import.meta.env.VITE_API_BASE
+  }
+  return 'http://localhost:8000/api/v1'
+}
 
 /**
  * 获取班级列表
@@ -45,4 +53,28 @@ export function updateClass(id, data) {
  */
 export function deleteClass(id) {
   return request.delete(`/classes/${id}`)
+}
+
+// ========== 批量导入/模板 ==========
+
+export function getClassImportTemplateUrl(format = 'xlsx') {
+  const fmt = (format || 'xlsx').toLowerCase()
+  return `${getBaseURL()}/classes/import/template?format=${encodeURIComponent(fmt)}`
+}
+
+export async function importClassesFile(file) {
+  const formData = new FormData()
+  formData.append('file', file)
+  const res = await axios.post(`${getBaseURL()}/classes/import`, formData, {
+    headers: { 'Content-Type': 'multipart/form-data' }
+  })
+  return res.data
+}
+
+/**
+ * 一键升班
+ * @param {Object} data - { grades?: string[] }
+ */
+export function promoteClasses(data) {
+  return request.post('/classes/promote', data)
 }

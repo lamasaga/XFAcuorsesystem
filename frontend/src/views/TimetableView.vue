@@ -1,19 +1,63 @@
 <template>
   <div class="timetable-view">
+    <!-- 课表选择器 -->
+    <div class="schedule-selector-bar card">
+      <div class="selector-left">
+        <el-icon><Calendar /></el-icon>
+        <span class="selector-label">当前课表:</span>
+        <el-select
+          v-model="currentScheduleId"
+          placeholder="选择课表"
+          style="width: 220px"
+          @change="onScheduleChange"
+        >
+          <el-option
+            v-for="s in scheduleList"
+            :key="s.id"
+            :label="s.name + (s.is_active ? ' (使用中)' : '')"
+            :value="s.id"
+          >
+            <span>{{ s.name }}</span>
+            <el-tag v-if="s.is_active" type="success" size="small" style="margin-left: 8px">使用中</el-tag>
+            <span class="schedule-score" v-if="s.score">评分 {{ s.score }}</span>
+          </el-option>
+        </el-select>
+        <span v-if="currentSchedule" class="schedule-meta">
+          {{ formatDate(currentSchedule.created_at) }}
+        </span>
+      </div>
+      <div class="selector-right">
+        <el-button
+          v-if="currentSchedule && !currentSchedule.is_active"
+          type="primary"
+          size="small"
+          @click="activateCurrentSchedule"
+        >
+          <el-icon><Check /></el-icon>设为使用
+        </el-button>
+        <el-button
+          v-if="scheduleList.length > 1 && currentScheduleId"
+          type="danger"
+          plain
+          size="small"
+          @click="confirmDeleteSchedule(currentScheduleId)"
+        >
+          <el-icon><Delete /></el-icon>删除此课表
+        </el-button>
+      </div>
+    </div>
+
     <div class="page-header">
       <div class="page-title">
-        <h1>课表管理</h1>
-        <span class="subtitle">查看和调整课程表</span>
+        <h1>{{ pageTitle }}</h1>
+        <span class="subtitle">{{ pageSubtitle }}</span>
       </div>
       <div class="header-actions">
         <el-button @click="printSchedule"><el-icon><Printer /></el-icon>打印</el-button>
         <el-button type="primary" @click="$router.push('/export')"><el-icon><Download /></el-icon>导出</el-button>
-        <el-button type="danger" plain @click="confirmClearSchedule" :disabled="!currentScheduleId">
-          <el-icon><Delete /></el-icon>清空课表
-        </el-button>
       </div>
     </div>
-    
+
     <!-- 视图切换和筛选 -->
     <div class="view-controls card">
       <div class="view-tabs">
@@ -85,9 +129,9 @@
                 v-for="day in 5" 
                 :key="day"
                 :class="{ 
-                  'friday-hidden': day === 5 && period.num > 8,
+                  'friday-hidden': day === 5 && period.num > 8 && currentView !== 'student',
                   'elective-placeholder': isElectivePlaceholder(period.num, day),
-                  'elective-available': period.isElective && !isElectivePlaceholder(period.num, day)
+                  'elective-available': period.isElective && !isElectivePlaceholder(period.num, day) && currentView !== 'student'
                 }"
                 @click="currentView === 'class' && !isElectivePlaceholder(period.num, day) && handleCellClick(period.num, day)"
                 @dragover.prevent
@@ -150,6 +194,7 @@
     <div class="operation-hint">
       <el-icon><InfoFilled /></el-icon>
       <span v-if="currentView === 'class'">提示：点击课程可查看详情/锁定/调换。拖拽课程可快速调换位置。红框=硬约束违反，橙框=软约束提醒。</span>
+      <span v-else-if="currentView === 'student'">提示：当前为学生个人课表视图，展示行政班课程与 A-Level 选修课程。</span>
       <span v-else>提示：当前为{{ currentView === 'teacher' ? '教师' : '教室' }}视图，仅供查看。课程调换请切换到班级视图。</span>
     </div>
     
@@ -269,22 +314,25 @@
 
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { 
   Printer, Download, Delete, ArrowLeft, ArrowRight, InfoFilled, Lock, Switch,
-  OfficeBuilding, User, Calendar, CircleCheck, Warning, CircleClose
+  OfficeBuilding, User, UserFilled, Calendar, Warning, CircleClose, Check
 } from '@element-plus/icons-vue'
 import {
-  getScheduleList, getScheduleDetail, getClassTimetable,
-  getTeacherTimetable, getVenueTimetable, swapScheduleItems,
-  toggleLockItem, getSwapCandidates, validateSchedule, deleteSchedule,
+  getScheduleList, getClassTimetable,
+  getTeacherTimetable, getVenueTimetable, getStudentTimetable,
+  swapScheduleItems, toggleLockItem, getSwapCandidates,
+  validateSchedule, deleteSchedule, activateSchedule,
 } from '@/api/schedules'
 import { getTeachers } from '@/api/teachers'
 import { getClasses } from '@/api/classes'
 import { getVenues } from '@/api/venues'
+import { getStudents } from '@/api/students'
 
 const route = useRoute()
+const router = useRouter()
 
 // ========== 基础状态 ==========
 const loading = ref(false)
@@ -295,6 +343,7 @@ const scheduleList = ref([])
 const viewTypes = [
   { key: 'class', label: '班级视图', icon: 'OfficeBuilding' },
   { key: 'teacher', label: '教师视图', icon: 'User' },
+  { key: 'student', label: '学生视图', icon: 'UserFilled' },
   { key: 'room', label: '教室视图', icon: 'Calendar' }
 ]
 const currentView = ref('class')
@@ -303,9 +352,38 @@ const selectedTarget = ref(null)
 const teacherList = ref([])
 const classList = ref([])
 const venueList = ref([])
+const studentList = ref([])
+
+const currentSchedule = computed(() =>
+  scheduleList.value.find(s => s.id === currentScheduleId.value) || null
+)
+
+const pageTitle = computed(() => {
+  if (currentView.value === 'student' && selectedTarget.value) {
+    const s = studentList.value.find(st => st.id === selectedTarget.value)
+    return s ? `${s.name} 的个人课表` : '学生课表'
+  }
+  if (currentView.value === 'teacher' && selectedTarget.value) {
+    const t = teacherList.value.find(te => te.id === selectedTarget.value)
+    return t ? `${t.name} 的教师课表` : '教师课表'
+  }
+  if (currentView.value === 'class' && selectedTarget.value) {
+    const c = classList.value.find(cl => cl.id === selectedTarget.value)
+    return c ? `${c.name} 班级课表` : '班级课表'
+  }
+  return '课表管理'
+})
+
+const pageSubtitle = computed(() => {
+  if (currentView.value === 'student' && selectedTarget.value) {
+    const s = studentList.value.find(st => st.id === selectedTarget.value)
+    return s ? `学号: ${s.student_no || '-'} | 年级: ${s.grade || '-'}` : '查看学生个人课表'
+  }
+  return '查看和调整课程表'
+})
 
 const filterPlaceholder = computed(() => {
-  const placeholders = { class: '选择班级', teacher: '选择教师', room: '选择教室' }
+  const placeholders = { class: '选择班级', teacher: '选择教师', student: '选择学生', room: '选择教室' }
   return placeholders[currentView.value]
 })
 
@@ -314,6 +392,8 @@ const filterOptions = computed(() => {
     return classList.value.map(c => ({ value: c.id, label: c.name }))
   } else if (currentView.value === 'teacher') {
     return teacherList.value.map(t => ({ value: t.id, label: t.name }))
+  } else if (currentView.value === 'student') {
+    return studentList.value.map(s => ({ value: s.id, label: `${s.name} (${s.student_no || s.grade || ''})` }))
   } else if (currentView.value === 'room') {
     return venueList.value.map(v => ({ value: v.id, label: v.name }))
   }
@@ -349,6 +429,8 @@ const currentGrade = computed(() => {
 
 const isElectivePlaceholder = (period, day) => {
   if (!ELECTIVE_CONFIG.periods.includes(period)) return false
+  // 学生视图直接显示合并后的课表，不需要占位符
+  if (currentView.value === 'student') return false
   if (day === 5) return true
   if (day === ELECTIVE_CONFIG.day && ELECTIVE_CONFIG.grades.includes(currentGrade.value)) return false
   return true
@@ -461,7 +543,7 @@ const loadBasicData = async () => {
     classList.value = classesRes.data.items || []
     venueList.value = venuesRes.data.items || []
     classList.value.sort((a, b) => {
-      const gradeOrder = ['PK','KG','G1','G2','G3','G4','G5','G6','G7','G8','G9','G10','G11']
+      const gradeOrder = ['PK','KG','G1','G2','G3','G4','G5','G6','G7','G8','G9','G10','G11','G12']
       const aIdx = gradeOrder.indexOf(a.grade)
       const bIdx = gradeOrder.indexOf(b.grade)
       if (aIdx !== bIdx) return aIdx - bIdx
@@ -479,6 +561,23 @@ const loadBasicData = async () => {
   }
 }
 
+const loadStudents = async () => {
+  try {
+    const res = await getStudents({ page: 1, page_size: 500 })
+    studentList.value = (res.data?.items || []).map(s => ({
+      ...s,
+      studentNo: s.student_no,
+      classId: s.class_id,
+    }))
+    if (currentView.value === 'student' && studentList.value.length > 0) {
+      selectedTarget.value = studentList.value[0].id
+    }
+  } catch (error) {
+    console.error('加载学生数据失败:', error)
+    studentList.value = []
+  }
+}
+
 const loadTimetable = async () => {
   if (!currentScheduleId.value || !selectedTarget.value) {
     timetableData.value = {}
@@ -493,6 +592,8 @@ const loadTimetable = async () => {
       res = await getClassTimetable(currentScheduleId.value, selectedTarget.value)
     } else if (currentView.value === 'teacher') {
       res = await getTeacherTimetable(currentScheduleId.value, selectedTarget.value)
+    } else if (currentView.value === 'student') {
+      res = await getStudentTimetable(currentScheduleId.value, selectedTarget.value)
     } else if (currentView.value === 'room') {
       res = await getVenueTimetable(currentScheduleId.value, selectedTarget.value)
     }
@@ -503,13 +604,16 @@ const loadTimetable = async () => {
           if (Array.isArray(items) && items.length > 0) {
             const first = items[0]
             timetableData.value[key] = {
+              itemId: null,
               subject: first.subject_name,
               teacher: items.length > 1
                 ? `${first.class_name} 等${items.length}班`
                 : first.class_name,
               color: first.subject_color,
               count: items.length,
-              allClasses: items.map(i => i.class_name).join('、')
+              allClasses: items.map(i => i.class_name).join('、'),
+              note: '',
+              isLocked: false,
             }
           }
         }
@@ -518,7 +622,7 @@ const loadTimetable = async () => {
           timetableData.value[key] = {
             itemId: value.item_id,
             subject: value.subject_name,
-            teacher: currentView.value === 'class' ? value.teacher_name : value.class_name,
+            teacher: currentView.value === 'class' ? value.teacher_name : (value.class_name || value.teacher_name),
             color: value.subject_color,
             note: value.note || '',
             isLocked: value.is_locked || false,
@@ -568,6 +672,8 @@ watch(currentView, () => {
     selectedTarget.value = classList.value[0].id
   } else if (currentView.value === 'teacher' && teacherList.value.length > 0) {
     selectedTarget.value = teacherList.value[0].id
+  } else if (currentView.value === 'student' && studentList.value.length > 0) {
+    selectedTarget.value = studentList.value[0].id
   } else if (currentView.value === 'room' && venueList.value.length > 0) {
     selectedTarget.value = venueList.value[0].id
   } else {
@@ -585,6 +691,7 @@ watch(currentScheduleId, () => {
 onMounted(async () => {
   await loadScheduleList()
   await loadBasicData()
+  await loadStudents()
   const urlClassId = route.query.class_id
   if (urlClassId) {
     currentView.value = 'class'
@@ -759,46 +866,166 @@ const nextTarget = () => {
   if (idx < filterOptions.value.length - 1) selectedTarget.value = filterOptions.value[idx + 1].value
 }
 
-const printSchedule = () => ElMessage.info('准备打印...')
+const formatDate = (dateStr) => {
+  if (!dateStr) return ''
+  const d = new Date(dateStr)
+  return d.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+}
 
-// --- 清空课表 ---
-const confirmClearSchedule = async () => {
-  if (!currentScheduleId.value) {
-    ElMessage.warning('当前没有可清空的课表')
-    return
-  }
-  try {
-    await ElMessageBox.confirm(
-      '确定要删除当前课表吗？此操作不可撤销。',
-      '清空课表',
-      { confirmButtonText: '确定删除', cancelButtonText: '取消', type: 'warning' }
-    )
-    await deleteSchedule(currentScheduleId.value)
-    ElMessage.success('课表已清空')
-    
-    // 1. 清除当前 ID 和所有显示数据
-    currentScheduleId.value = null
-    timetableData.value = {}
-    violations.value = {}
-    validationSummary.value = null
-    
-    // 2. 清除 URL 参数
-    if (route.query.schedule_id) {
-      await router.replace({ query: { ...route.query, schedule_id: undefined } })
-    }
-
-    // 3. 重新加载列表，但不自动选中（用户看到空课表）
-    await loadScheduleList(false)
-  } catch (e) {
-    if (e !== 'cancel') {
-      ElMessage.error('删除失败: ' + (e.response?.data?.detail || e.message || e))
-    }
+const onScheduleChange = async (scheduleId) => {
+  currentScheduleId.value = scheduleId
+  if (selectedTarget.value) {
+    await loadTimetable()
   }
 }
+
+const activateCurrentSchedule = async () => {
+  if (!currentScheduleId.value) return
+  try {
+    await activateSchedule(currentScheduleId.value)
+    ElMessage.success('已设为当前使用课表')
+    await loadScheduleList(false)
+  } catch (error) {
+    ElMessage.error('激活失败')
+  }
+}
+
+const confirmDeleteSchedule = async (scheduleId) => {
+  try {
+    await ElMessageBox.confirm(
+      '确定要删除此课表吗？此操作不可撤销。',
+      '删除课表',
+      { confirmButtonText: '确定删除', cancelButtonText: '取消', type: 'warning' }
+    )
+    await deleteSchedule(scheduleId)
+    ElMessage.success('课表已删除')
+    currentScheduleId.value = null
+    timetableData.value = {}
+    await loadScheduleList(false)
+    // 自动选择第一个课表
+    if (scheduleList.value.length > 0) {
+      currentScheduleId.value = scheduleList.value[0].id
+      if (selectedTarget.value) await loadTimetable()
+    }
+  } catch (e) {
+    if (e !== 'cancel') ElMessage.error('删除失败')
+  }
+}
+
+const printSchedule = () => {
+  const title = pageTitle.value
+  const subtitle = pageSubtitle.value
+  const printWindow = window.open('', '_blank')
+  if (!printWindow) {
+    ElMessage.warning('请允许弹窗以使用打印功能')
+    return
+  }
+
+  // 构建课表HTML
+  let html = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="UTF-8">
+      <title>${title}</title>
+      <style>
+        body { font-family: 'Microsoft YaHei', sans-serif; padding: 24px; }
+        .print-header { text-align: center; margin-bottom: 20px; }
+        .print-header h2 { margin: 0; font-size: 22px; }
+        .print-header p { margin: 4px 0 0; color: #666; font-size: 13px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 16px; }
+        th { background: #1e3a5f; color: #fff; padding: 10px; font-size: 13px; }
+        td { border: 1px solid #ddd; padding: 8px; text-align: center; min-height: 60px; vertical-align: middle; }
+        .time-col { background: #f8fafc; font-weight: 600; width: 80px; }
+        .cell-subject { font-weight: 600; font-size: 13px; }
+        .cell-teacher { font-size: 11px; color: #666; margin-top: 3px; }
+        .cell-note { font-size: 10px; color: #999; margin-top: 2px; }
+        .break-row { background: #fef3c7; text-align: center; font-size: 12px; color: #92400e; }
+        .elective-placeholder { background: #f1f5f9; color: #94a3b8; font-size: 12px; }
+        .friday-hidden { background: #f1f5f9; }
+        @media print { body { padding: 0; } }
+      </style>
+    </head>
+    <body>
+      <div class="print-header">
+        <h2>${title}</h2>
+        <p>${subtitle}</p>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>时间</th>
+            <th>周一</th><th>周二</th><th>周三</th><th>周四</th><th>周五</th>
+          </tr>
+        </thead>
+        <tbody>
+  `
+
+  for (const period of periods) {
+    if (period.isBreak) {
+      html += `<tr><td colspan="6" class="break-row">${period.label}</td></tr>`
+      continue
+    }
+    html += `<tr>`
+    html += `<td class="time-col"><div>第${period.num}节</div><div style="font-size:10px;color:#999">${period.time}</div></td>`
+    for (let day = 1; day <= 5; day++) {
+      if (day === 5 && period.num > 8) {
+        html += `<td class="friday-hidden">-</td>`
+        continue
+      }
+      if (isElectivePlaceholder(period.num, day)) {
+        html += `<td class="elective-placeholder">选修课</td>`
+        continue
+      }
+      const cell = getScheduleCell(period.num, day)
+      if (cell) {
+        const style = cell.color && cell.color !== '#ccc'
+          ? `style="background:${cell.color}15;border-color:${cell.color}55"`
+          : ''
+        html += `<td ${style}>
+          <div class="cell-subject">${cell.subject || ''}</div>
+          <div class="cell-teacher">${cell.teacher || ''}</div>
+          ${cell.note ? `<div class="cell-note">${cell.note}</div>` : ''}
+        </td>`
+      } else {
+        html += `<td></td>`
+      }
+    }
+    html += `</tr>`
+  }
+
+  html += `
+        </tbody>
+      </table>
+      <div style="margin-top:16px;font-size:11px;color:#999;text-align:center">
+        打印时间: ${new Date().toLocaleString('zh-CN')}
+      </div>
+      <script>window.onload = () => { setTimeout(() => window.print(), 300) }<\/script>
+    </body>
+    </html>
+  `
+
+  printWindow.document.write(html)
+  printWindow.document.close()
+}
+
+
 </script>
 
 <style lang="scss" scoped>
-.timetable-view { max-width: 1400px; margin: 0 auto; }
+.timetable-view { width: 100%; margin: 0 auto; }
+
+.schedule-selector-bar {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 12px 20px; margin-bottom: 16px;
+  .selector-left {
+    display: flex; align-items: center; gap: 10px;
+    .selector-label { font-size: 14px; color: var(--text-secondary); font-weight: 500; }
+    .schedule-meta { font-size: 12px; color: var(--text-muted); margin-left: 8px; }
+  }
+  .selector-right { display: flex; gap: 8px; }
+  .schedule-score { font-size: 11px; color: var(--text-muted); margin-left: 8px; }
+}
 
 .page-header {
   display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px;

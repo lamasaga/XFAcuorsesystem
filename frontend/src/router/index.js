@@ -78,6 +78,38 @@ const routes = [
     name: 'Export',
     component: () => import('@/views/ExportPage.vue'),
     meta: { title: '导出' }
+  },
+  {
+    path: '/alevel',
+    name: 'ALevelManagement',
+    component: () => import('@/views/ALevelManagement.vue'),
+    meta: { title: 'A-Level' },
+    children: [
+      {
+        path: 'students',
+        name: 'ALevelStudents',
+        component: () => import('@/views/alevel/ALevelStudentManagement.vue'),
+        meta: { title: '学生管理' }
+      },
+      {
+        path: 'subjects',
+        name: 'ALevelSubjects',
+        component: () => import('@/views/alevel/ALevelSubjectManagement.vue'),
+        meta: { title: 'AL科目管理' }
+      },
+      {
+        path: 'selections',
+        name: 'CourseSelections',
+        component: () => import('@/views/alevel/CourseSelectionManagement.vue'),
+        meta: { title: '选课管理' }
+      },
+      {
+        path: 'classes',
+        name: 'CourseClasses',
+        component: () => import('@/views/alevel/CourseClassManagement.vue'),
+        meta: { title: '课程班管理' }
+      }
+    ]
   }
 ]
 

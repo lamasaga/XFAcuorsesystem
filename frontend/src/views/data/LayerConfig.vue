@@ -281,7 +281,7 @@ const isEditing = ref(false)
 const editingId = ref(null)
 const selectedGradeForCombine = ref('')
 
-const gradeOptions = ['G1', 'G2', 'G3', 'G4', 'G5', 'G6', 'G7', 'G8', 'G9', 'G10', 'G11']
+const gradeOptions = ['G1', 'G2', 'G3', 'G4', 'G5', 'G6', 'G7', 'G8', 'G9', 'G10', 'G11', 'G12']
 
 const layerForm = ref({
   group_type: 'LAYER',  // LAYER 或 COMBINE

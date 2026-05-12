@@ -6,6 +6,9 @@
         <span class="hint">配置场地容量限制，用于排课时的资源约束</span>
       </div>
       <div class="toolbar-right">
+        <el-button @click="showImportDialog = true">
+          <el-icon><Upload /></el-icon>导入
+        </el-button>
         <el-button type="primary" @click="showAddDialog = true">
           <el-icon><Plus /></el-icon>添加场地
         </el-button>
@@ -92,6 +95,15 @@
       </div>
     </div>
 
+    <!-- 导入对话框 -->
+    <ExcelImportDialog
+      v-model="showImportDialog"
+      title="导入场地数据"
+      :template-url="getVenueImportTemplateUrl('xlsx')"
+      :import-api="importVenuesFile"
+      @success="loadVenues"
+    />
+
     <!-- 添加/编辑场地对话框 -->
     <el-dialog v-model="showAddDialog" :title="isEditing ? '编辑场地资源' : '添加场地资源'" width="500px" @close="resetForm">
       <el-form :model="venueForm" label-width="100px">
@@ -131,11 +143,13 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, Edit, Delete, Soccer, PictureFilled, Microphone, Headset, InfoFilled, Monitor, School } from '@element-plus/icons-vue'
-import { getVenues, createVenue, updateVenue, deleteVenue as deleteVenueApi } from '@/api/venues'
+import { Plus, Edit, Delete, Upload } from '@element-plus/icons-vue'
+import { getVenues, createVenue, updateVenue, deleteVenue as deleteVenueApi, getVenueImportTemplateUrl, importVenuesFile } from '@/api/venues'
 import { getSubjects } from '@/api/subjects'
+import ExcelImportDialog from '@/components/ExcelImportDialog.vue'
 
 const showAddDialog = ref(false)
+const showImportDialog = ref(false)
 const loading = ref(false)
 const venues = ref([])
 const isEditing = ref(false)
@@ -144,7 +158,7 @@ const editingId = ref(null)
 // 科目选项 - 从科目管理 API 获取
 const subjectOptions = ref([])
 const subjectLoading = ref(false)
-const gradeOptions = ['PK', 'KG', 'G1', 'G2', 'G3', 'G4', 'G5', 'G6', 'G7', 'G8', 'G9', 'G10', 'G11']
+const gradeOptions = ['PK', 'KG', 'G1', 'G2', 'G3', 'G4', 'G5', 'G6', 'G7', 'G8', 'G9', 'G10', 'G11', 'G12']
 
 const venueForm = ref({
   name: '',

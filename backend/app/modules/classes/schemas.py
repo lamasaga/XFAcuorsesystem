@@ -5,7 +5,7 @@
 """
 
 from pydantic import BaseModel, Field
-from typing import Optional
+from typing import Optional, List
 from datetime import datetime
 
 
@@ -14,7 +14,7 @@ class ClassBase(BaseModel):
     
     name: str = Field(..., min_length=1, max_length=20, description="班级名称", examples=["IG3-1"])
     type: str = Field(default="I", description="班级类型：I=国际班，N=综素班")
-    grade: str = Field(..., description="年级：PK/KG/G1-G11", examples=["G3"])
+    grade: str = Field(..., description="年级：PK/KG/G1-G12", examples=["G3"])
     class_no: int = Field(default=1, ge=1, le=10, description="班级序号")
     department: str = Field(default="PRIMARY", description="学部")
     homeroom_cn_id: Optional[int] = Field(None, description="中教班主任ID")
@@ -47,3 +47,28 @@ class ClassResponse(ClassBase):
     
     class Config:
         from_attributes = True
+
+
+class ClassPromoteRequest(BaseModel):
+    """一键升班请求"""
+    grades: Optional[List[str]] = Field(
+        None,
+        description="要升级的年级列表（如 ['G10', 'G11']），不传则升级所有非毕业年级"
+    )
+
+
+class ClassPromoteItem(BaseModel):
+    """单个班级升班结果"""
+    class_id: int
+    old_name: str
+    new_name: str
+    old_grade: str
+    new_grade: str
+    student_count: int
+
+
+class ClassPromoteResponse(BaseModel):
+    """一键升班响应"""
+    code: int = 200
+    message: str = "success"
+    data: dict

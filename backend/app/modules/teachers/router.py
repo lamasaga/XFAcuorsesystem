@@ -64,7 +64,7 @@ from app.modules.teachers.schemas import (
     ResearchGroupResponse,
 )
 from app.modules.teachers.models import ResearchGroup
-from app.modules.teachers import service
+from app.modules.teachers import service_import as import_service
 
 
 # -----------------------------------------
@@ -82,11 +82,11 @@ async def download_import_template(format: str = Query("xlsx", description="模�
         raise HTTPException(status_code=400, detail="format 仅支持 xlsx 或 csv")
 
     if fmt == "xlsx":
-        content = service.build_teachers_template_xlsx()
+        content = import_service.build_template_xlsx()
         filename = "teachers_import_template.xlsx"
         media_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     else:
-        content = service.build_teachers_template_csv()
+        content = import_service.build_template_csv()
         filename = "teachers_import_template.csv"
         media_type = "text/csv; charset=utf-8"
 
@@ -104,7 +104,7 @@ async def import_teachers(
 ):
     """批量导入教师（xlsx/csv）"""
     content = await file.read()
-    rows, parse_errors = service.parse_teachers_import_file(file.filename or "", content)
+    rows, parse_errors = import_service.parse_import_file(file.filename or "", content)
     if parse_errors:
         return {
             "code": 400,
@@ -118,7 +118,7 @@ async def import_teachers(
             },
         }
 
-    dup_errors = service.validate_duplicate_names(rows)
+    dup_errors = import_service.validate_duplicate_names(rows)
     if dup_errors:
         return {
             "code": 400,
@@ -132,9 +132,9 @@ async def import_teachers(
             },
         }
 
-    result = service.import_teachers_from_rows(db, rows)
+    result = import_service.import_teachers_from_rows(db, rows)
     return {
-        "code": 200 if result.failed == 0 else 200,
+        "code": 200,
         "message": "导入完成" if result.failed == 0 else "导入完成（部分失败）",
         "data": {
             "created": result.created,

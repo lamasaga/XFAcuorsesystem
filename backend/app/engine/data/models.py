@@ -143,7 +143,7 @@ class Class:
         id: 班级ID
         name: 班级名称（如 IG3-1）
         type: 班级类型 (I/N)
-        grade: 年级（PK/KG/G1-G11）
+        grade: 年级（PK/KG/G1-G12）
         class_no: 班级序号
         department: 学部
         homeroom_cn_id: 中教班主任ID
@@ -164,7 +164,7 @@ class Class:
         grade_order = {
             'PK': 0, 'KG': 1,
             'G1': 2, 'G2': 3, 'G3': 4, 'G4': 5, 'G5': 6,
-            'G6': 7, 'G7': 8, 'G8': 9, 'G9': 10, 'G10': 11, 'G11': 12
+            'G6': 7, 'G7': 8, 'G8': 9, 'G9': 10, 'G10': 11, 'G11': 12, 'G12': 13
         }
         return grade_order.get(self.grade, 0)
     

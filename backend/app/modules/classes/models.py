@@ -26,7 +26,7 @@ class Class(Base):
         id: 班级 ID
         name: 班级名称（如 IG3-1）
         type: 班级类型（I=国际班，N=综素班）
-        grade: 年级（PK/KG/G1-G11）
+        grade: 年级（PK/KG/G1-G12）
         class_no: 班级序号
         department: 学部（PRIMARY/SECONDARY）
         homeroom_cn_id: 中教班主任 ID
@@ -47,15 +47,15 @@ class Class(Base):
     type = Column(String(1), nullable=False, default="I", comment="班级类型：I=国际班，N=综素班")
     
     # 年级
-    # PK = 学前班，KG = 幼儿园，G1-G11 = 1-11年级
-    grade = Column(String(10), nullable=False, comment="年级：PK/KG/G1-G11")
+    # PK = 学前班，KG = 幼儿园，G1-G12 = 1-12年级
+    grade = Column(String(10), nullable=False, comment="年级：PK/KG/G1-G12")
     
     # 班级序号
     class_no = Column(Integer, nullable=False, default=1, comment="班级序号")
     
     # 学部
     # PRIMARY = 小学部（PK-G5）
-    # SECONDARY = 中学部（G6-G11）
+    # SECONDARY = 中学部（G6-G12）
     department = Column(String(20), nullable=False, default="PRIMARY", comment="学部")
     
     # 班主任关联（外键）

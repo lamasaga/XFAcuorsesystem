@@ -130,7 +130,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, markRaw } from 'vue'
 import { 
   Cpu, User, OfficeBuilding, Reading, Calendar,
   ArrowRight, Download, Setting, DataAnalysis
@@ -154,10 +154,10 @@ const currentDate = computed(() => {
 
 // 统计卡片数据
 const statsCards = ref([
-  { icon: 'User', value: 0, label: '教师总数', color: 'blue' },
-  { icon: 'OfficeBuilding', value: 0, label: '班级总数', color: 'green' },
-  { icon: 'Reading', value: 0, label: '科目总数', color: 'orange' },
-  { icon: 'Calendar', value: 0, label: '已排课时', color: 'purple' }
+  { icon: markRaw(User), value: 0, label: '教师总数', color: 'blue' },
+  { icon: markRaw(OfficeBuilding), value: 0, label: '班级总数', color: 'green' },
+  { icon: markRaw(Reading), value: 0, label: '科目总数', color: 'orange' },
+  { icon: markRaw(Calendar), value: 0, label: '已排课时', color: 'purple' }
 ])
 
 // 排课状态
@@ -185,10 +185,10 @@ const loadStats = async () => {
     
     // 更新统计卡片
     statsCards.value = [
-      { icon: 'User', value: data.teacher_count, label: '教师总数', color: 'blue' },
-      { icon: 'OfficeBuilding', value: data.class_count, label: '班级总数', color: 'green' },
-      { icon: 'Reading', value: data.subject_count, label: '科目总数', color: 'orange' },
-      { icon: 'Calendar', value: data.scheduled_periods, label: '已排课时', color: 'purple' }
+      { icon: markRaw(User), value: data.teacher_count, label: '教师总数', color: 'blue' },
+      { icon: markRaw(OfficeBuilding), value: data.class_count, label: '班级总数', color: 'green' },
+      { icon: markRaw(Reading), value: data.subject_count, label: '科目总数', color: 'orange' },
+      { icon: markRaw(Calendar), value: data.scheduled_periods, label: '已排课时', color: 'purple' }
     ]
     
     // 更新排课状态
@@ -232,7 +232,7 @@ onMounted(() => {
 // 快速操作
 const operations = ref([
   { 
-    icon: 'User', 
+    icon: markRaw(User), 
     title: '教师管理', 
     desc: '添加或编辑教师信息',
     path: '/data/teachers',
@@ -240,7 +240,7 @@ const operations = ref([
     iconColor: '#2563eb'
   },
   { 
-    icon: 'OfficeBuilding', 
+    icon: markRaw(OfficeBuilding), 
     title: '班级管理', 
     desc: '管理年级和班级',
     path: '/data/classes',
@@ -248,7 +248,7 @@ const operations = ref([
     iconColor: '#16a34a'
   },
   { 
-    icon: 'Setting', 
+    icon: markRaw(Setting), 
     title: '约束设置', 
     desc: '配置排课规则和约束优先级',
     path: '/constraints',
@@ -256,7 +256,7 @@ const operations = ref([
     iconColor: '#d97706'
   },
   { 
-    icon: 'Download', 
+    icon: markRaw(Download), 
     title: '导出课表', 
     desc: '导出课表数据',
     path: '/export',

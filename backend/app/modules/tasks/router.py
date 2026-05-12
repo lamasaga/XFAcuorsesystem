@@ -4,10 +4,11 @@
 ========================================
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, File, UploadFile
 from sqlalchemy.orm import Session
 from typing import Optional, List
 from app.core.dependencies import get_db, create_response, create_pagination_response
+from app.core.importer import create_import_response
 from app.modules.tasks import crud
 from app.modules.tasks.schemas import (
     TeachingTaskCreate,
@@ -15,6 +16,7 @@ from app.modules.tasks.schemas import (
     TeachingTaskResponse,
     TeachingTaskWithDetails
 )
+from app.modules.tasks import service_import as import_service
 
 # 导入其他模块的 crud 用于验证
 from app.modules.teachers.crud import get_teacher
@@ -68,6 +70,55 @@ async def get_tasks_with_details(
     return create_pagination_response(items=tasks, total=total, page=page, page_size=page_size)
 
 
+# ── 导入导出 ── 必须在 /{task_id} 之前注册 ─────────────
+
+@router.get("/import/template", response_model=None)
+async def download_import_template(format: str = Query("xlsx", description="模板格式：xlsx/csv")):
+    """下载教学任务导入模板"""
+    fmt = (format or "xlsx").lower()
+    if fmt not in {"xlsx", "csv"}:
+        raise HTTPException(status_code=400, detail="format 仅支持 xlsx 或 csv")
+
+    if fmt == "xlsx":
+        content = import_service.build_template_xlsx()
+        filename = "tasks_import_template.xlsx"
+        media_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    else:
+        content = import_service.build_template_csv()
+        filename = "tasks_import_template.csv"
+        media_type = "text/csv; charset=utf-8"
+
+    from fastapi.responses import StreamingResponse
+    return StreamingResponse(
+        iter([content]),
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.post("/import", response_model=dict)
+async def import_tasks(
+    file: UploadFile = File(..., description="xlsx/csv 文件"),
+    db: Session = Depends(get_db),
+):
+    """批量导入教学任务"""
+    content = await file.read()
+    rows, parse_errors = import_service.parse_import_file(file.filename or "", content)
+    if parse_errors:
+        return {
+            "code": 400,
+            "message": "导入失败：文件解析错误",
+            "data": {
+                "created": 0, "updated": 0, "skipped": 0,
+                "failed": len(parse_errors),
+                "errors": [{"rowNumber": e.row_number, "identifier": e.identifier, "message": e.message} for e in parse_errors],
+            },
+        }
+
+    result = import_service.import_tasks_from_rows(db, rows)
+    return create_import_response(result)
+
+
 @router.get("/{task_id}")
 async def get_task(task_id: int, db: Session = Depends(get_db)):
     """获取单个教学任务"""
@@ -116,6 +167,25 @@ async def create_task(task: TeachingTaskCreate, db: Session = Depends(get_db)):
 @router.post("/batch")
 async def create_tasks_batch(tasks: List[TeachingTaskCreate], db: Session = Depends(get_db)):
     """批量创建教学任务"""
+    # 批量验证教师、班级、科目是否存在
+    teacher_ids = {t.teacher_id for t in tasks}
+    class_ids = {t.class_id for t in tasks}
+    subject_ids = {t.subject_id for t in tasks}
+    
+    missing = []
+    for tid in teacher_ids:
+        if not get_teacher(db, tid):
+            missing.append(f"教师不存在 (ID: {tid})")
+    for cid in class_ids:
+        if not get_class(db, cid):
+            missing.append(f"班级不存在 (ID: {cid})")
+    for sid in subject_ids:
+        if not get_subject(db, sid):
+            missing.append(f"科目不存在 (ID: {sid})")
+    
+    if missing:
+        raise HTTPException(status_code=400, detail="; ".join(missing))
+    
     new_tasks = crud.create_tasks_batch(db, tasks)
     return create_response(
         data={"count": len(new_tasks)},

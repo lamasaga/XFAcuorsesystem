@@ -77,3 +77,9 @@ class ScheduleResponse(BaseModel):
     code: int = 200
     message: str = "排课成功"
     data: dict = Field(default_factory=dict)
+
+
+class ScheduleConfigUpdate(BaseModel):
+    """约束配置更新请求"""
+    name: Optional[str] = Field(default="自定义配置", max_length=50, description="配置名称")
+    config: dict = Field(default_factory=dict, description="约束配置JSON对象")

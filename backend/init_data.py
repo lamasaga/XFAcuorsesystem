@@ -164,6 +164,7 @@ def init_classes(db: Session):
         {"name": "IG9-2", "type": "I", "grade": "G9", "class_no": 2, "department": "SECONDARY"},
         {"name": "IG10-1", "type": "I", "grade": "G10", "class_no": 1, "department": "SECONDARY"},
         {"name": "IG11-1", "type": "I", "grade": "G11", "class_no": 1, "department": "SECONDARY"},
+        {"name": "IG12-1", "type": "I", "grade": "G12", "class_no": 1, "department": "SECONDARY"},
         
         # N 类
         {"name": "NG1-1", "type": "N", "grade": "G1", "class_no": 1, "department": "PRIMARY"},
