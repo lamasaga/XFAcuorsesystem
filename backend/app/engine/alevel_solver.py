@@ -11,6 +11,12 @@ A-Level 排课求解器（顺序排课模式）
 3. 学生不冲突：同一学生同一时刻只能上一门 A-Level 课
 4. 教师不冲突：同一教师同一时刻只能教一门 A-Level 课
 5. 时段限制：避开行政班主科（语数英）时间
+6. A-Level 连堂课约束（独立设计）：
+   - 连堂课不跨午休（第5节和第6节之间）
+   - 连堂课不跨 9-10 节边界（正课和选修课之间）
+   - 连堂课不跨晚自习边界（第11节和第12节之间）
+   - 周五不安排连堂课（周五只有8节，时间紧凑）
+   - 连堂课 duration 最大为 2（A-Level 通常双连堂）
 
 使用方法：
     from app.engine.alevel_solver import AlevelScheduleSolver
@@ -68,6 +74,13 @@ class AlevelScheduleSolver:
     
     基于 OR-Tools CP-SAT，在行政班排课后的剩余时段中为 A-Level 课程排课。
     """
+
+    # A-Level 连堂课边界常量（与行政班独立）
+    LUNCH_BREAK_AFTER = 5       # 午休在第5节之后
+    ELECTIVE_BOUNDARY = 9       # 正课(1-9)和选修课(10-11)的边界
+    SELF_STUDY_BOUNDARY = 11    # 选修课(10-11)和晚自习(12-13)的边界
+    MAX_CONTINUOUS_DURATION = 2 # A-Level 连堂最大节数
+    FRIDAY_MAX_PERIOD = 8       # 周五最大节次
 
     def __init__(
         self,
@@ -142,6 +155,7 @@ class AlevelScheduleSolver:
         为每个 session 构建可用时间槽列表
         
         根据高中部时间槽配置和行政班已占用 slots，确定每个 session 可以安排的时间。
+        同时应用 A-Level 特有的连堂课边界约束。
         """
         self.session_slots: Dict[int, List[Tuple[int, int]]] = {}
         
@@ -152,12 +166,34 @@ class AlevelScheduleSolver:
                 if self.senior_slots:
                     max_period = self.senior_slots.get_max_period(day)
                 else:
-                    max_period = 8 if day == 5 else 13
+                    max_period = self.FRIDAY_MAX_PERIOD if day == 5 else 13
                 
                 for period in range(1, max_period + 1):
                     end_period = period + session.duration - 1
                     if end_period > max_period:
                         continue
+                    
+                    # ===== A-Level 连堂课边界约束（硬过滤） =====
+                    if session.duration > 1:
+                        # 约束 AL-C1: 连堂课不跨午休（5-6节之间）
+                        if period <= self.LUNCH_BREAK_AFTER < end_period:
+                            continue
+                        
+                        # 约束 AL-C2: 连堂课不跨正课/选修课边界（9-10节之间）
+                        if period <= self.ELECTIVE_BOUNDARY < end_period:
+                            continue
+                        
+                        # 约束 AL-C3: 连堂课不跨选修课/晚自习边界（11-12节之间）
+                        if period <= self.SELF_STUDY_BOUNDARY < end_period:
+                            continue
+                        
+                        # 约束 AL-C4: 周五不安排连堂课（周五只有8节，时间紧凑）
+                        if day == 5:
+                            continue
+                        
+                        # 约束 AL-C5: 连堂课时长不超过2节
+                        if session.duration > self.MAX_CONTINUOUS_DURATION:
+                            continue
                     
                     # 检查教师是否在该时段已有行政班课程
                     teacher_busy = False
@@ -204,22 +240,26 @@ class AlevelScheduleSolver:
                 continue
             self.model.AddExactlyOne(vars_list)
         
-        # C2: 教师不冲突
+        # C2: 教师不冲突（考虑连堂课的 duration 覆盖）
         teacher_day_period: Dict[Tuple[int, int, int], List[cp_model.IntVar]] = defaultdict(list)
         for idx, session in enumerate(sessions):
             for (day, period), var in self.x[idx].items():
-                teacher_day_period[(session.teacher_id, day, period)].append(var)
+                # 一个 session 从 period 开始，持续 duration 节
+                # 因此它会占用 [period, period + duration - 1] 的所有时段
+                for p in range(period, period + session.duration):
+                    teacher_day_period[(session.teacher_id, day, p)].append(var)
         
         for key, vars_list in teacher_day_period.items():
             if len(vars_list) > 1:
                 self.model.AddAtMostOne(vars_list)
         
-        # C3: 学生不冲突
+        # C3: 学生不冲突（考虑连堂课的 duration 覆盖）
         student_day_period: Dict[Tuple[int, int, int], List[cp_model.IntVar]] = defaultdict(list)
         for idx, session in enumerate(sessions):
             for (day, period), var in self.x[idx].items():
-                for student_id in session.student_ids:
-                    student_day_period[(student_id, day, period)].append(var)
+                for p in range(period, period + session.duration):
+                    for student_id in session.student_ids:
+                        student_day_period[(student_id, day, p)].append(var)
         
         for key, vars_list in student_day_period.items():
             if len(vars_list) > 1:

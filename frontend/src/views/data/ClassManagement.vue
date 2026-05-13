@@ -168,7 +168,7 @@
               <el-option v-for="g in 5" :key="g" :label="`G${g} (${g}年级)`" :value="`G${g}`" />
             </el-option-group>
             <el-option-group label="中学部">
-              <el-option v-for="g in 6" :key="g+5" :label="`G${g+5} (${g+5}年级)`" :value="`G${g+5}`" />
+              <el-option v-for="g in 7" :key="g+5" :label="`G${g+5} (${g+5}年级)`" :value="`G${g+5}`" />
             </el-option-group>
           </el-select>
         </el-form-item>
@@ -221,7 +221,7 @@
           <el-checkbox-group v-model="promoteGrades" class="promote-grades">
             <el-checkbox v-for="g in allGrades" :key="g.key" :value="g.key" :label="g.name" />
           </el-checkbox-group>
-          <div class="promote-hint">留空则默认升级所有非毕业年级（PK ~ G10）</div>
+          <div class="promote-hint">留空则默认升级所有非毕业年级（PK ~ G11）</div>
         </div>
 
         <div class="promote-preview" v-if="promotePreview.length > 0">
@@ -371,6 +371,7 @@ const secondaryGrades = [
   { key: 'G9', name: 'G9 (九年级)' },
   { key: 'G10', name: 'G10 (十年级)' },
   { key: 'G11', name: 'G11 (十一年级)' },
+  { key: 'G12', name: 'G12 (十二年级/毕业)' },
 ]
 
 // 班级数据

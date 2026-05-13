@@ -78,6 +78,17 @@ request.interceptors.request.use(
     // 打印请求信息（调试用）
     console.log(`[API] ${config.method.toUpperCase()} ${config.url}`)
     
+    // 清理请求参数，移除值为 undefined 字符串或 null 的参数
+    if (config.params) {
+      const cleanedParams = {}
+      for (const [key, value] of Object.entries(config.params)) {
+        if (value !== undefined && value !== null && value !== 'undefined' && value !== '') {
+          cleanedParams[key] = value
+        }
+      }
+      config.params = cleanedParams
+    }
+    
     return config
   },
   (error) => {
