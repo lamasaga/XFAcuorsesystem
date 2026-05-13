@@ -8,7 +8,8 @@ from typing import Optional
 from sqlalchemy.orm import Session
 
 from .models import (
-    Teacher, Class, Subject, Task, LayerGroup, Venue, ScheduleData
+    Teacher, Class, Subject, Task, LayerGroup, Venue, ScheduleData,
+    TimeSlot, DepartmentTimeSlots, AlevelScheduleSession
 )
 
 
@@ -49,6 +50,10 @@ class DatabaseLoader:
         from app.modules.tasks.models import TeachingTask as TaskORM
         from app.modules.layers.models import LayerGroup as LayerGroupORM
         from app.modules.venues.models import Venue as VenueORM
+        from app.modules.time_slots.models import TimeSlotConfig as TimeSlotORM
+        from app.modules.course_classes.models import CourseClass as CourseClassORM
+        from app.modules.course_classes.models import CourseClassMember as MemberORM
+        from app.modules.alevel_subjects.models import AlevelSubject as AlevelSubjectORM
         
         self.TeacherORM = TeacherORM
         self.ClassORM = ClassORM
@@ -56,6 +61,10 @@ class DatabaseLoader:
         self.TaskORM = TaskORM
         self.LayerGroupORM = LayerGroupORM
         self.VenueORM = VenueORM
+        self.TimeSlotORM = TimeSlotORM
+        self.CourseClassORM = CourseClassORM
+        self.MemberORM = MemberORM
+        self.AlevelSubjectORM = AlevelSubjectORM
         
         self._orm_models_loaded = True
     
@@ -75,6 +84,8 @@ class DatabaseLoader:
         venues = self._load_venues()
         layer_groups = self._load_layer_groups(subjects)
         tasks = self._load_tasks(teachers, classes, subjects, layer_groups)
+        time_slots = self._load_time_slots()
+        alevel_sessions = self._load_alevel_sessions()
         
         # 构建数据集
         data = ScheduleData(
@@ -83,7 +94,9 @@ class DatabaseLoader:
             subjects=subjects,
             tasks=tasks,
             layer_groups=layer_groups,
-            venues=venues
+            venues=venues,
+            time_slots=time_slots,
+            alevel_sessions=alevel_sessions
         )
         
         return data
@@ -206,6 +219,121 @@ class DatabaseLoader:
                 priority = 200
             
             task.priority = priority
+    
+    def _load_time_slots(self) -> dict[str, DepartmentTimeSlots]:
+        """
+        加载时间槽配置数据
+        
+        从 time_slot_configs 表加载各学部的时间槽定义，
+        按学部组织为 DepartmentTimeSlots 对象。
+        
+        Returns:
+            Dict[str, DepartmentTimeSlots]: {department: DepartmentTimeSlots}
+        """
+        orm_slots = self.db.query(self.TimeSlotORM).filter(
+            self.TimeSlotORM.is_active == True
+        ).all()
+        
+        # 按学部和 day_type 分组
+        grouped: dict[str, dict[str, list[TimeSlot]]] = {}
+        for s in orm_slots:
+            dept = s.department
+            day_type = s.day_type
+            if dept not in grouped:
+                grouped[dept] = {}
+            if day_type not in grouped[dept]:
+                grouped[dept][day_type] = []
+            
+            # 将 time 对象格式化为 HH:MM 字符串
+            start_str = s.start_time.strftime("%H:%M") if s.start_time else ""
+            end_str = s.end_time.strftime("%H:%M") if s.end_time else ""
+            
+            grouped[dept][day_type].append(TimeSlot(
+                period=s.period_num,
+                start_time=start_str,
+                end_time=end_str,
+                period_type=s.period_type,
+                period_name=s.period_name or ""
+            ))
+        
+        # 组装为 DepartmentTimeSlots
+        result = {}
+        for dept, day_slots in grouped.items():
+            dts = DepartmentTimeSlots(department=dept)
+            for day_type, slots in day_slots.items():
+                # 按 period_num 排序
+                slots.sort(key=lambda s: s.period)
+                if day_type == "MONDAY":
+                    dts.monday = slots
+                elif day_type == "TUE_THU":
+                    dts.tue_thu = slots
+                elif day_type == "FRIDAY":
+                    dts.friday = slots
+            result[dept] = dts
+        
+        return result
+    
+    def _load_alevel_sessions(self) -> list[AlevelScheduleSession]:
+        """
+        加载 A-Level 课程班数据
+        
+        查询所有活跃的课程班及其学生成员，构建 AlevelScheduleSession 列表。
+        
+        Returns:
+            List[AlevelScheduleSession]: A-Level 排课会话列表
+        """
+        # 查询活跃的课程班
+        course_classes = self.db.query(self.CourseClassORM).filter(
+            self.CourseClassORM.is_deleted == False,
+            self.CourseClassORM.status == "ACTIVE",
+            self.CourseClassORM.teacher_id.isnot(None)  # 必须有教师
+        ).all()
+        
+        if not course_classes:
+            return []
+        
+        # 查询所有成员（按课程班分组）
+        class_ids = [cc.id for cc in course_classes]
+        members = self.db.query(self.MemberORM).filter(
+            self.MemberORM.course_class_id.in_(class_ids),
+            self.MemberORM.status == "ENROLLED"
+        ).all()
+        
+        # 按课程班ID分组学生
+        class_students: dict[int, list[int]] = {}
+        for m in members:
+            class_students.setdefault(m.course_class_id, []).append(m.student_id)
+        
+        # 查询科目信息（获取 weekly_hours）
+        subject_ids = list({cc.alevel_subject_id for cc in course_classes})
+        subjects = self.db.query(self.AlevelSubjectORM).filter(
+            self.AlevelSubjectORM.id.in_(subject_ids),
+            self.AlevelSubjectORM.is_deleted == False
+        ).all()
+        subject_hours = {s.id: s.weekly_hours for s in subjects}
+        
+        sessions = []
+        for cc in course_classes:
+            student_ids = class_students.get(cc.id, [])
+            if not student_ids:
+                continue  # 没有学生的课程班不排课
+            
+            weekly_hours = subject_hours.get(cc.alevel_subject_id, 2)
+            
+            sessions.append(AlevelScheduleSession(
+                course_class_id=cc.id,
+                teacher_id=cc.teacher_id,
+                student_ids=student_ids,
+                aleve_subject_id=cc.alevel_subject_id,
+                weekly_hours=weekly_hours,
+                duration=1,  # 默认单节，可后续扩展为连堂
+                required_venue_type=None,  # A-Level 课程暂不考虑场地限制
+                department="SENIOR",
+                priority=100,  # A-Level 课程优先级较高
+            ))
+        
+        print(f"    A-Level 课程班: {len(sessions)} 个")
+        return sessions
 
 
 def load_schedule_data(db: Session) -> ScheduleData:

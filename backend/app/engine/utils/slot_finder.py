@@ -432,10 +432,17 @@ class SlotFinder:
                 return False
         
         # 4. 检查教师可用性（如果有数据）
+        # 推断课程所属学部（从第一个班级获取）
+        session_dept = None
+        if self.data and class_ids:
+            cls = self.data.get_class(class_ids[0])
+            if cls:
+                session_dept = cls.department
+        
         if self.data:
             for tid in teacher_ids:
                 teacher = self.data.get_teacher(tid)
-                if teacher and not teacher.is_available(day, period):
+                if teacher and not teacher.is_available(day, period, session_dept):
                     return False
         
         return True

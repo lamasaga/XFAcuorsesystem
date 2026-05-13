@@ -286,14 +286,19 @@ def get_class_timetable(
 def get_teacher_timetable(
     schedule_id: int, teacher_id: int, db: Session = Depends(get_db),
 ):
-    """获取指定教师的课表"""
+    """获取指定教师的课表（含行政班 + A-Level 课程）"""
     items = db.query(models.ScheduleItem).filter(
         models.ScheduleItem.schedule_id == schedule_id,
         models.ScheduleItem.teacher_id == teacher_id,
     ).all()
 
-    class_ids = {i.class_id for i in items if i.class_id}
-    subject_ids = {i.subject_id for i in items if i.subject_id}
+    # 分离行政班和 A-Level 项目
+    homeroom_items = [i for i in items if i.item_type == "homeroom" or i.item_type is None]
+    alevel_items = [i for i in items if i.item_type == "alevel"]
+
+    # 行政班：查询班级和科目信息
+    class_ids = {i.class_id for i in homeroom_items if i.class_id}
+    subject_ids = {i.subject_id for i in homeroom_items if i.subject_id}
 
     classes = {c.id: c.name for c in db.query(Class).filter(
         Class.id.in_(class_ids)).all()} if class_ids else {}
@@ -301,16 +306,31 @@ def get_teacher_timetable(
                 for s in db.query(Subject).filter(
                     Subject.id.in_(subject_ids)).all()} if subject_ids else {}
 
-    task_ids = {i.task_id for i in items if i.task_id}
+    task_ids = {i.task_id for i in homeroom_items if i.task_id}
     tasks_notes = {}
     if task_ids:
         tasks_notes = {t.id: t.note for t in db.query(TeachingTask).filter(
             TeachingTask.id.in_(task_ids)).all()}
 
+    # A-Level：查询课程班信息
+    course_class_ids = {i.course_class_id for i in alevel_items if i.course_class_id}
+    course_classes = {}
+    alevel_subjects = {}
+    if course_class_ids:
+        for cc in db.query(CourseClass).filter(CourseClass.id.in_(course_class_ids)).all():
+            course_classes[cc.id] = cc
+            if cc.alevel_subject_id:
+                sub = db.query(AlevelSubject).filter(
+                    AlevelSubject.id == cc.alevel_subject_id
+                ).first()
+                if sub:
+                    alevel_subjects[cc.id] = sub
+
     teacher_info = db.query(Teacher).filter(Teacher.id == teacher_id).first()
 
     timetable = {}
-    for item in items:
+    # 处理行政班课程
+    for item in homeroom_items:
         key = f"{item.day}-{item.period}"
         si = subjects.get(item.subject_id, {"name": "", "color": "#ccc"})
         timetable[key] = {
@@ -320,6 +340,23 @@ def get_teacher_timetable(
             "class_name": classes.get(item.class_id, ""),
             "note": tasks_notes.get(item.task_id, "") or "",
             "is_locked": bool(item.is_locked),
+            "type": "homeroom",
+        }
+    
+    # 处理 A-Level 课程
+    for item in alevel_items:
+        key = f"{item.day}-{item.period}"
+        cc = course_classes.get(item.course_class_id)
+        sub = alevel_subjects.get(item.course_class_id) if cc else None
+        subject_name = sub.name if sub else (cc.name if cc else "A-Level")
+        timetable[key] = {
+            "item_id": item.id,
+            "subject_name": subject_name,
+            "subject_color": "#8b5cf6",  # A-Level 默认紫色
+            "class_name": cc.name if cc else "",
+            "note": f"A-Level: {cc.name if cc else ''}",
+            "is_locked": bool(item.is_locked),
+            "type": "alevel",
         }
 
     # 查询该教师所属教研组的组会时间
@@ -508,70 +545,69 @@ def get_student_timetable(
             }
 
     # ===== Part 2: A-Level 选修课程 =====
-    # 查找学生已加入的所有课程班
+    # 从 schedule_items 直接读取 A-Level 排课结果（替代 schedule_pattern 内存拼接）
+    alevel_items = db.query(models.ScheduleItem).filter(
+        models.ScheduleItem.schedule_id == schedule_id,
+        models.ScheduleItem.item_type == "alevel",
+    ).all()
+
+    # 获取学生 enrolled 的课程班ID
     enrolled_class_ids = db.query(CourseClassMember.course_class_id).filter(
         CourseClassMember.student_id == student_id,
         CourseClassMember.status == "ENROLLED",
     ).all()
-    enrolled_class_ids = [r[0] for r in enrolled_class_ids]
+    enrolled_class_ids = {r[0] for r in enrolled_class_ids}
 
-    if enrolled_class_ids:
-        course_classes = db.query(CourseClass).filter(
-            CourseClass.id.in_(enrolled_class_ids),
-            CourseClass.is_deleted == False,
-        ).all()
+    if alevel_items:
+        # 查询所有相关课程班和教师信息
+        cc_ids = {i.course_class_id for i in alevel_items if i.course_class_id}
+        course_classes = {}
+        teachers = {}
+        alevel_subjects_map = {}
+        if cc_ids:
+            for cc in db.query(CourseClass).filter(CourseClass.id.in_(cc_ids)).all():
+                course_classes[cc.id] = cc
+                if cc.teacher_id:
+                    t = db.query(Teacher).filter(Teacher.id == cc.teacher_id).first()
+                    if t:
+                        teachers[cc.id] = t.name
+                if cc.alevel_subject_id:
+                    sub = db.query(AlevelSubject).filter(
+                        AlevelSubject.id == cc.alevel_subject_id
+                    ).first()
+                    if sub:
+                        alevel_subjects_map[cc.id] = sub.name
 
-        for cc in course_classes:
-            teacher_name = ""
-            if cc.teacher_id:
-                t = db.query(Teacher).filter(Teacher.id == cc.teacher_id).first()
-                teacher_name = t.name if t else ""
+        for item in alevel_items:
+            # 只显示学生已 enrolled 的课程班
+            if item.course_class_id not in enrolled_class_ids:
+                continue
 
-            subject_name = cc.name
-            alevel_sub = db.query(AlevelSubject).filter(
-                AlevelSubject.id == cc.alevel_subject_id
-            ).first()
-            subject_color = "#8b5cf6"  # 默认紫色用于A-Level课程
-            if alevel_sub:
-                subject_name = alevel_sub.name
+            cc = course_classes.get(item.course_class_id)
+            if not cc:
+                continue
 
-            # 解析 schedule_pattern 中的时间槽
-            pattern = cc.schedule_pattern or {}
-            slots = []
-            if isinstance(pattern, dict):
-                # 支持多种格式
-                if "slots" in pattern and isinstance(pattern["slots"], list):
-                    slots = pattern["slots"]
-                elif "day" in pattern and "period" in pattern:
-                    slots = [pattern]
+            key = f"{item.day}-{item.period}"
+            subject_name = alevel_subjects_map.get(cc.id, cc.name)
+            teacher_name = teachers.get(cc.id, "")
 
-            if slots:
-                for slot in slots:
-                    day = slot.get("day")
-                    period = slot.get("period")
-                    if day and period:
-                        key = f"{day}-{period}"
-                        # 如果同一时间段已有行政班课程，标记为冲突/叠加
-                        existing = timetable.get(key)
-                        if existing:
-                            # 叠加显示：保留行政班，增加A-Level标记
-                            existing["alevel_subject"] = subject_name
-                            existing["alevel_teacher"] = teacher_name
-                            existing["note"] = f"行政班: {existing['subject_name']} | A-Level: {subject_name}"
-                        else:
-                            timetable[key] = {
-                                "item_id": None,
-                                "subject_name": subject_name,
-                                "subject_color": subject_color,
-                                "teacher_name": teacher_name,
-                                "class_name": cc.name,
-                                "note": f"A-Level: {cc.name}",
-                                "is_locked": False,
-                                "type": "alevel",
-                            }
+            # 如果同一时间段已有行政班课程，标记为叠加
+            existing = timetable.get(key)
+            if existing:
+                existing["alevel_subject"] = subject_name
+                existing["alevel_teacher"] = teacher_name
+                existing["note"] = f"行政班: {existing['subject_name']} | A-Level: {subject_name}"
             else:
-                # schedule_pattern 没有时间信息，放到特殊标记中
-                pass
+                timetable[key] = {
+                    "item_id": item.id,
+                    "subject_name": subject_name,
+                    "subject_color": "#8b5cf6",
+                    "teacher_name": teacher_name,
+                    "class_name": cc.name,
+                    "note": f"A-Level: {cc.name}",
+                    "is_locked": bool(item.is_locked),
+                    "type": "alevel",
+                }
 
     # 获取学生行政班名称
     class_name = ""

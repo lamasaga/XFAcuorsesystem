@@ -53,6 +53,10 @@ from app.modules.students.router import router as students_router
 from app.modules.alevel_subjects.router import router as alevel_subjects_router
 from app.modules.course_selections.router import router as course_selections_router
 from app.modules.course_classes.router import router as course_classes_router
+from app.modules.time_slots.router import router as time_slots_router
+
+# 导入 time_slots 模型（确保 Base.metadata 包含该表）
+from app.modules.time_slots.models import TimeSlotConfig
 
 
 # -----------------------------------------
@@ -181,7 +185,11 @@ app.include_router(
     prefix=f"{settings.API_PREFIX}/course-classes",
     tags=["课程班管理"]
 )
-
+app.include_router(
+    time_slots_router,
+    prefix=f"{settings.API_PREFIX}/time-slots",
+    tags=["时间槽配置"]
+)
 
 
 
@@ -203,6 +211,15 @@ async def startup():
     
     # 创建数据库表（如果不存在）
     Base.metadata.create_all(bind=engine)
+    
+    # 初始化时间槽配置数据（如果表为空）
+    from app.core.database import SessionLocal
+    from app.modules.time_slots.init_data import init_time_slot_configs
+    db = SessionLocal()
+    try:
+        init_time_slot_configs(db)
+    finally:
+        db.close()
     
     # 打印所有路由
     print("[路由] 已注册的 API 路由:")

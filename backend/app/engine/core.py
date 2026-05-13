@@ -12,7 +12,7 @@
 
 import uuid
 from datetime import datetime
-from typing import Dict, Any, List, Union
+from typing import Dict, Any, List, Union, Tuple
 from collections import defaultdict
 from sqlalchemy.orm import Session
 from sqlalchemy import func
@@ -20,6 +20,7 @@ from sqlalchemy import func
 from .data.loader import load_schedule_data
 from .data.models import ScheduleRecord, ScheduleData
 from .solver import CPScheduleSolver, DEFAULT_SOFT_CONFIG
+from .alevel_solver import AlevelScheduleSolver, AlevelScheduleRecord
 from ..modules.schedules.models import Schedule, ScheduleItem, ScheduleConfig
 
 
@@ -93,7 +94,24 @@ class ScheduleEngine:
                 detail = "排课失败：求解器未能找到可行解，请检查数据配置或约束设置"
             raise RuntimeError(detail)
 
-        # 5. 保存结果（含组会信息）
+        # 5. A-Level 排课（顺序排课模式：行政班先排，A-Level 后排）
+        alevel_records_map = {}  # {solution_index: [AlevelScheduleRecord, ...]}
+        if self.data.alevel_sessions:
+            print("\n>>> A-Level 排课...")
+            for i, records in enumerate(solutions):
+                if not records:
+                    continue
+                # 从行政班排课结果构建教师占用映射
+                teacher_occupied = self._build_teacher_occupied(records)
+                alevel_solver = AlevelScheduleSolver(
+                    self.data,
+                    teacher_occupied=teacher_occupied,
+                    prefer_elective_slots=True,
+                )
+                alevel_records = alevel_solver.solve()
+                alevel_records_map[i] = alevel_records
+        
+        # 6. 保存结果（含行政班 + A-Level）
         meeting_info = getattr(solver, '_meeting_results', None) or {}
         # 转换 key 为字符串以便 JSON 序列化
         meeting_json = {str(k): v for k, v in meeting_info.items()} if meeting_info else None
@@ -104,11 +122,13 @@ class ScheduleEngine:
                 continue
             suffix = f"_方案{chr(65 + i)}" if plan_count > 1 else ""
             summary = self._build_summary(records, 0)
+            alevel_records = alevel_records_map.get(i, [])
             schedule_id = self._save_results(
-                records, suffix, batch_id, summary["score"],
+                records, alevel_records, suffix, batch_id, summary["score"],
                 meeting_info=meeting_json,
             )
             summary["schedule_id"] = schedule_id
+            summary["alevel_count"] = len(alevel_records)
             plans.append(summary)
 
         plans.sort(key=lambda p: p["score"], reverse=True)
@@ -162,8 +182,25 @@ class ScheduleEngine:
     # 保存结果
     # ----------------------------------------------------------
 
+    def _build_teacher_occupied(
+        self, records: List[ScheduleRecord]
+    ) -> Dict[Tuple[int, int, int], bool]:
+        """
+        从行政班排课结果构建教师占用映射
+        
+        Returns:
+            {(teacher_id, day, period): True}
+        """
+        occupied = {}
+        for r in records:
+            for p in r.periods:
+                occupied[(r.teacher_id, r.day, p)] = True
+        return occupied
+
     def _save_results(
-        self, records: List[ScheduleRecord],
+        self,
+        records: List[ScheduleRecord],
+        alevel_records: List[AlevelScheduleRecord],
         suffix: str, batch_id: str, score: int,
         meeting_info: dict = None,
     ) -> int:
@@ -178,19 +215,35 @@ class ScheduleEngine:
         self.db.add(schedule)
         self.db.flush()
 
+        # 保存行政班排课结果
         for record in records:
             self.db.add(ScheduleItem(
                 schedule_id=schedule.id,
+                item_type="homeroom",
                 task_id=record.task_id,
                 teacher_id=record.teacher_id,
                 class_id=record.class_id,
                 subject_id=record.subject_id,
                 day=record.day,
                 period=record.period,
+                duration=record.duration,
+            ))
+        
+        # 保存 A-Level 排课结果
+        for ar in alevel_records:
+            self.db.add(ScheduleItem(
+                schedule_id=schedule.id,
+                item_type="alevel",
+                course_class_id=ar.course_class_id,
+                teacher_id=ar.teacher_id,
+                day=ar.day,
+                period=ar.period,
+                duration=ar.duration,
             ))
 
         self.db.commit()
         print(f"    课表已保存, ID={schedule.id}, batch={batch_id}")
+        print(f"      行政班: {len(records)} 节, A-Level: {len(alevel_records)} 节")
         return schedule.id
 
     # ----------------------------------------------------------

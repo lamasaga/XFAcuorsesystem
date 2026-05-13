@@ -19,15 +19,39 @@ class Schedule(Base):
 
 
 class ScheduleItem(Base):
-    """课表项：某节课的具体安排"""
+    """课表项：某节课的具体安排
+    
+    支持两种课程类型：
+    - homeroom: 行政班课程（通过 task_id 关联 teaching_tasks）
+    - alevel: A-Level 课程（通过 course_class_id 关联 course_classes）
+    """
     __tablename__ = "schedule_items"
 
     id = Column(Integer, primary_key=True, index=True)
     schedule_id = Column(Integer, ForeignKey("schedules.id"))
 
-    task_id = Column(Integer, ForeignKey("teaching_tasks.id"))
+    # 课程类型：homeroom = 行政班课程, alevel = A-Level 课程
+    item_type = Column(
+        String(20),
+        nullable=False,
+        default="homeroom",
+        comment="课程类型：homeroom=行政班课程, alevel=A-Level课程"
+    )
+
+    # 行政班课程关联
+    task_id = Column(Integer, ForeignKey("teaching_tasks.id"), nullable=True)
+    
+    # A-Level 课程关联
+    course_class_id = Column(
+        Integer,
+        ForeignKey("course_classes.id"),
+        nullable=True,
+        comment="A-Level 课程班ID"
+    )
+    
     day = Column(Integer, nullable=False)     # 1-5
-    period = Column(Integer, nullable=False)  # 1-11
+    period = Column(Integer, nullable=False)  # 1-13
+    duration = Column(Integer, default=1, comment="持续节数（连堂课 > 1）")
 
     # 冗余字段方便查询
     teacher_id = Column(Integer, nullable=True)

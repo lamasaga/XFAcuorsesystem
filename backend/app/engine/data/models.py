@@ -43,6 +43,103 @@ class Period(Enum):
 
 
 @dataclass
+class TimeSlot:
+    """
+    时间槽数据模型
+
+    表示某一学部在某一天类型的具体一节课的时间定义。
+
+    Attributes:
+        period: 节次编号（1-based）
+        start_time: 开始时间字符串（如 "08:40"）
+        end_time: 结束时间字符串（如 "09:20"）
+        period_type: 时段类型（class/elective/self_study/break）
+        period_name: 节次名称（如 "第1节课"）
+    """
+    period: int
+    start_time: str
+    end_time: str
+    period_type: str = "class"
+    period_name: str = ""
+
+    def to_dict(self) -> Dict[str, Any]:
+        """转换为字典"""
+        return asdict(self)
+
+
+@dataclass
+class DepartmentTimeSlots:
+    """
+    学部时间槽集合
+
+    存储一个学部在不同星期类型的所有时间槽。
+
+    Attributes:
+        department: 学部代码（PRIMARY/SECONDARY/SENIOR）
+        monday: 周一时间槽列表
+        tue_thu: 周二~周四时间槽列表
+        friday: 周五时间槽列表
+    """
+    department: str
+    monday: List[TimeSlot] = field(default_factory=list)
+    tue_thu: List[TimeSlot] = field(default_factory=list)
+    friday: List[TimeSlot] = field(default_factory=list)
+
+    def get_slots_for_day(self, day: int) -> List[TimeSlot]:
+        """
+        根据星期几获取对应的时间槽列表
+
+        Args:
+            day: 星期几（1=周一, 2=周二, ..., 5=周五）
+
+        Returns:
+            该学部在该星期几的时间槽列表
+        """
+        if day == 5:
+            return self.friday
+        elif day == 1:
+            return self.monday
+        else:  # day 2,3,4
+            return self.tue_thu
+
+    def get_max_period(self, day: int) -> int:
+        """
+        获取某天的最大节次编号
+
+        Args:
+            day: 星期几（1-5）
+
+        Returns:
+            该学部该天的最大节次
+        """
+        slots = self.get_slots_for_day(day)
+        if not slots:
+            return 8  # 默认安全值
+        return max(s.period for s in slots)
+
+    def get_period_types(self) -> Dict[int, str]:
+        """
+        获取所有时段的类型映射（period -> period_type）
+
+        用于快速判断某节课是正课、选修还是自习。
+        """
+        result = {}
+        for slots in [self.monday, self.tue_thu, self.friday]:
+            for s in slots:
+                result[s.period] = s.period_type
+        return result
+
+    def to_dict(self) -> Dict[str, Any]:
+        """转换为字典"""
+        return {
+            "department": self.department,
+            "monday": [s.to_dict() for s in self.monday],
+            "tue_thu": [s.to_dict() for s in self.tue_thu],
+            "friday": [s.to_dict() for s in self.friday],
+        }
+
+
+@dataclass
 class Teacher:
     """
     教师数据模型
@@ -76,34 +173,46 @@ class Teacher:
         """是否是班主任"""
         return "HOMEROOM_TEACHER" in self.tags
     
-    def _get_shift_unavailable(self, day: int) -> List[int]:
+    def _get_shift_unavailable(self, day: int, effective_dept: str = None) -> List[int]:
         """
         根据班次获取不可用时间段
         
         晚班规则：
         - 小学部晚班：上午（第1-5节）不可用
-        - 中学部晚班：第1-4节不可用，可排第5节
+        - 中学部/高中部晚班：第1-4节不可用，可排第5节
+        
+        Args:
+            day: 星期几
+            effective_dept: 有效学部，用于跨学部教师（department="BOTH"）的班次判断。
+                          如果为 None，则使用教师自身的 department。
         """
         shift = self.daily_shifts.get(str(day), "morning")
         if shift == "evening":
-            if self.department == "PRIMARY":
+            dept = effective_dept or self.department
+            if dept == "PRIMARY":
                 return [1, 2, 3, 4, 5]  # 小学部晚班：上午全部不可用
             else:
-                return [1, 2, 3, 4]     # 中学部晚班：可排第5节
+                return [1, 2, 3, 4]     # 中学部/高中部晚班：可排第5节
         return []
     
-    def is_available(self, day: int, period: int) -> bool:
+    def is_available(self, day: int, period: int, session_department: str = None) -> bool:
         """
         检查教师在指定时间是否可用
         
-        同时检查手动设置的不可用时间和班次导致的不可用时间
+        同时检查手动设置的不可用时间和班次导致的不可用时间。
+        
+        Args:
+            day: 星期几（1-5）
+            period: 节次编号
+            session_department: 当前课程的学部（用于跨学部教师的班次判断）。
+                              如果教师 department="BOTH"，此参数决定使用小学部还是中学部的班次规则。
         """
         # 先检查手动设置的不可用时间
         manual_unavailable = self.unavailable_slots.get(day, [])
         if period in manual_unavailable:
             return False
-        # 再检查班次导致的不可用时间
-        shift_unavailable = self._get_shift_unavailable(day)
+        # 再检查班次导致的不可用时间（使用 session_department 进行学部感知判断）
+        shift_unavailable = self._get_shift_unavailable(day, session_department)
         if period in shift_unavailable:
             return False
         return True
@@ -442,6 +551,46 @@ class Venue:
 
 
 @dataclass
+class AlevelScheduleSession:
+    """
+    A-Level 排课会话（排课决策单元）
+    
+    代表一个 A-Level 课程班的一次排课需求。
+    
+    Attributes:
+        course_class_id: 课程班ID
+        teacher_id: 授课教师ID
+        student_ids: 学生ID列表
+        aleve_subject_id: A-Level 科目ID
+        weekly_hours: 每周课时数
+        duration: 每次课的时长（1=单节, 2=连堂）
+        required_venue_type: 所需场地类型
+        department: 所属学部（固定为 SENIOR）
+        priority: 优先级
+    """
+    course_class_id: int
+    teacher_id: int
+    student_ids: List[int] = field(default_factory=list)
+    aleve_subject_id: int = 0
+    weekly_hours: int = 2
+    duration: int = 1
+    required_venue_type: Optional[str] = None
+    department: str = "SENIOR"
+    priority: int = 0
+    
+    @property
+    def sessions_count(self) -> int:
+        """计算需要排几次课"""
+        if self.duration > 1:
+            return self.weekly_hours // self.duration
+        return self.weekly_hours
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """转换为字典"""
+        return asdict(self)
+
+
+@dataclass
 class ScheduleRecord:
     """
     排课记录（算法输出的基本单元）
@@ -457,6 +606,8 @@ class ScheduleRecord:
         period: 第几节（1-9）
         duration: 持续节数（连堂课 > 1）
         layer_group_id: 分层组ID（如果是分层课）
+        course_class_id: A-Level 课程班ID（如果是 A-Level 课程）
+        item_type: 课程类型（homeroom/alevel）
     """
     task_id: int
     teacher_id: int
@@ -466,6 +617,8 @@ class ScheduleRecord:
     period: int
     duration: int = 1
     layer_group_id: Optional[int] = None
+    course_class_id: Optional[int] = None
+    item_type: str = "homeroom"
     
     @property
     def time_slot(self) -> str:
@@ -496,6 +649,13 @@ class ScheduleData:
     tasks: List[Task] = field(default_factory=list)
     layer_groups: List[LayerGroup] = field(default_factory=list)
     venues: List[Venue] = field(default_factory=list)
+    
+    # 时间槽配置：按学部组织的时间槽定义
+    # {department: DepartmentTimeSlots}
+    time_slots: Dict[str, DepartmentTimeSlots] = field(default_factory=dict, repr=False)
+    
+    # A-Level 排课数据
+    alevel_sessions: List['AlevelScheduleSession'] = field(default_factory=list)
     
     # 索引字典（便于快速查找）
     _teacher_map: Dict[int, Teacher] = field(default_factory=dict, repr=False)
@@ -581,5 +741,7 @@ class ScheduleData:
             "tasks": [t.to_dict() for t in self.tasks],
             "layer_groups": [lg.to_dict() for lg in self.layer_groups],
             "venues": [v.to_dict() for v in self.venues],
+            "time_slots": {dept: ts.to_dict() for dept, ts in self.time_slots.items()},
+            "alevel_sessions": [s.to_dict() for s in self.alevel_sessions],
             "stats": self.stats
         }

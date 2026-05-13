@@ -68,6 +68,7 @@ class ScheduleSession:
     grades: List[str]
     is_main_subject: bool = False
     is_continuous_pair: bool = False      # 标记为「连堂对」
+    department: str = "PRIMARY"           # 课程所属学部（用于跨学部教师时间约束）
 
 
 # ============================================================
@@ -109,10 +110,18 @@ class SessionBuilder:
             is_main = subject.is_main if subject else False
             venue_type = tasks[0].required_venue_type if tasks else None
 
+            # 推断分层组所属学部（取第一个班级的学部）
+            dept = "PRIMARY"
+            if affected_class_ids:
+                first_class = self.data.get_class(affected_class_ids[0])
+                if first_class:
+                    dept = first_class.department
+
             sid = self._create_sessions_for_hours(
                 sessions, sid, task_ids, teacher_ids, affected_class_ids,
                 group.subject_id, group.subject_name, group.weekly_hours,
                 group.needs_continuous, venue_type, group.id, grades, is_main,
+                dept,
             )
 
         # ---------- 2. 处理非分层任务 ----------
@@ -122,6 +131,7 @@ class SessionBuilder:
 
             cls = self.data.get_class(task.class_id)
             grade = cls.grade if cls else "G1"
+            dept = cls.department if cls else "PRIMARY"
             subject = self.data.get_subject(task.subject_id)
             is_main = subject.is_main if subject else False
 
@@ -129,7 +139,7 @@ class SessionBuilder:
                 sessions, sid, [task.id], [task.teacher_id], [task.class_id],
                 task.subject_id, task.subject_name, task.weekly_hours,
                 task.is_continuous, task.required_venue_type, None,
-                [grade], is_main,
+                [grade], is_main, dept,
             )
 
         self._print_diagnostics(sessions, layer_task_ids)
@@ -141,6 +151,7 @@ class SessionBuilder:
         subject_id: int, subject_name: str, weekly_hours: int,
         needs_continuous: bool, venue_type: Optional[str],
         layer_group_id: Optional[int], grades: list, is_main: bool,
+        department: str = "PRIMARY",
     ) -> int:
         """为指定课时数创建 sessions，处理连堂逻辑"""
         base = dict(
@@ -148,7 +159,7 @@ class SessionBuilder:
             class_ids=class_ids, subject_id=subject_id,
             subject_name=subject_name, venue_type=venue_type,
             layer_group_id=layer_group_id, grades=grades,
-            is_main_subject=is_main,
+            is_main_subject=is_main, department=department,
         )
 
         if needs_continuous and weekly_hours >= 2:
@@ -366,7 +377,7 @@ class CPScheduleSolver:
         """
         slots: List[Tuple[int, int]] = []
         for day in range(1, 6):
-            max_period = self._get_max_period(day, session.grades)
+            max_period = self._get_max_period(day, session)
             for period in range(1, max_period + 1):
                 end_period = period + session.duration - 1
 
@@ -388,14 +399,14 @@ class CPScheduleSolver:
                 if session.duration > 1 and period <= 5 < end_period:
                     continue
 
-                # 教师手动不可用时间（硬约束）
+                # 教师时间可用性检查（硬约束）
+                # 同时检查 unavailable_slots 和 daily_shifts，使用 session.department 进行学部感知
                 available = True
                 for p in range(period, end_period + 1):
                     for tid in session.teacher_ids:
                         teacher = self.data.get_teacher(tid)
                         if teacher:
-                            manual = teacher.unavailable_slots.get(day, [])
-                            if p in manual:
+                            if not teacher.is_available(day, p, session.department):
                                 available = False
                                 break
                     if not available:
@@ -406,11 +417,20 @@ class CPScheduleSolver:
                 slots.append((day, period))
         return slots
 
-    @staticmethod
-    def _get_max_period(day: int, grades: List[str]) -> int:
+    def _get_max_period(self, day: int, session: ScheduleSession) -> int:
+        """
+        获取 session 在指定天的最大节次
+        
+        优先使用 time_slots 配置（学部感知），如果未加载则回退到硬编码逻辑。
+        """
+        # 优先使用配置化的时间槽数据
+        if self.data.time_slots and session.department in self.data.time_slots:
+            return self.data.time_slots[session.department].get_max_period(day)
+        
+        # 回退到硬编码逻辑（向后兼容）
         if day == 5:
             return 8
-        if day == 4 and grades and all(g in ('G8', 'G9') for g in grades):
+        if day == 4 and session.grades and all(g in ('G8', 'G9') for g in session.grades):
             return 11
         return 9
 
@@ -730,7 +750,9 @@ class CPScheduleSolver:
                 for (day, period), var in self.x[s.id].items():
                      shift = teacher.daily_shifts.get(str(day), "morning")
                      if shift == "evening":
-                         limit = 5 if teacher.department == "PRIMARY" else 4
+                         # 使用 session 所属学部判断班次限制（支持跨学部教师）
+                         effective_dept = s.department or teacher.department
+                         limit = 5 if effective_dept == "PRIMARY" else 4
                          if period <= limit:
                              bad_vars.append(var)
                 

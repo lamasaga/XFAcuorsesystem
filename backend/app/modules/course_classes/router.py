@@ -229,3 +229,221 @@ async def remove_course_class_member(
     if not success:
         raise HTTPException(status_code=404, detail=f"成员不存在 (ID: {member_id})")
     return SimpleResponse(code=200, message="移除成功", data=None)
+
+
+# ===========================================================
+# 自动分班 API
+# ===========================================================
+
+@router.post("/allocate", response_model=dict)
+async def allocate_course_classes(
+    academic_year: str = Query("2025-2026", description="学年"),
+    semester: str = Query("FALL", description="学期：FALL/SPRING"),
+    min_students: int = Query(5, ge=1, description="最低开班人数"),
+    db: Session = Depends(get_db)
+):
+    """
+    自动分班算法
+    
+    根据已审批的选课记录，自动将学生分配到 A-Level 课程班。
+    
+    流程：
+    1. 查询所有 APPROVED 状态的选课记录
+    2. 按 A-Level 科目聚合学生
+    3. 检查每个科目的学生数是否达到最低开班人数
+    4. 按 max_capacity 拆分为平行班
+    5. 均匀分配学生
+    6. 创建 CourseClass 和 CourseClassMember 记录
+    
+    注意：
+    - 如果某科目已有 ACTIVE 的课程班，会优先使用（在容量范围内补充学生）
+    - 新创建的课程班 teacher_id 为空，需要管理员后续分配教师
+    """
+    from app.modules.course_selections.models import CourseSelection
+    from app.modules.alevel_subjects.models import AlevelSubject
+    from app.modules.course_classes.models import CourseClass, CourseClassMember
+    from sqlalchemy import func
+    import math
+    
+    # 1. 查询所有已审批的选课记录
+    selections = db.query(CourseSelection).filter(
+        CourseSelection.academic_year == academic_year,
+        CourseSelection.semester == semester,
+        CourseSelection.status == "APPROVED",
+        CourseSelection.is_deleted == False,
+    ).all()
+    
+    if not selections:
+        return create_response(data={"created": 0, "details": []}, message="没有已审批的选课记录")
+    
+    # 2. 按 A-Level 科目聚合学生
+    subject_students: dict[int, list[int]] = {}
+    for sel in selections:
+        for item in (sel.selections or []):
+            subject_id = item.get("alevel_subject_id")
+            if subject_id:
+                subject_students.setdefault(subject_id, []).append(sel.student_id)
+    
+    # 去重（一个学生可能多次选同一科目）
+    for subject_id in subject_students:
+        subject_students[subject_id] = list(set(subject_students[subject_id]))
+    
+    # 3. 查询科目信息
+    subject_ids = list(subject_students.keys())
+    subjects = db.query(AlevelSubject).filter(
+        AlevelSubject.id.in_(subject_ids),
+        AlevelSubject.is_deleted == False,
+    ).all()
+    subject_map = {s.id: s for s in subjects}
+    
+    # 4. 查询现有课程班
+    existing_classes = db.query(CourseClass).filter(
+        CourseClass.academic_year == academic_year,
+        CourseClass.semester == semester,
+        CourseClass.status == "ACTIVE",
+        CourseClass.is_deleted == False,
+    ).all()
+    
+    # 按科目分组现有班级
+    existing_by_subject: dict[int, list[CourseClass]] = {}
+    for cc in existing_classes:
+        existing_by_subject.setdefault(cc.alevel_subject_id, []).append(cc)
+    
+    # 5. 执行分班
+    created_classes = []
+    allocated_total = 0
+    
+    for subject_id, student_ids in subject_students.items():
+        subject = subject_map.get(subject_id)
+        if not subject:
+            continue
+        
+        student_count = len(student_ids)
+        if student_count < min_students:
+            continue  # 不足最低开班人数
+        
+        max_capacity = subject.max_students or 20
+        
+        # 计算现有班级的剩余容量
+        existing = existing_by_subject.get(subject_id, [])
+        existing_capacity = 0
+        for cc in existing:
+            enrolled = db.query(func.count(CourseClassMember.id)).filter(
+                CourseClassMember.course_class_id == cc.id,
+                CourseClassMember.status == "ENROLLED",
+            ).scalar() or 0
+            existing_capacity += max(0, max_capacity - enrolled)
+        
+        # 如果现有班级容量足够，不需要新建
+        if existing_capacity >= student_count:
+            # 将学生分配到现有班级
+            remaining_students = student_ids[:]
+            for cc in existing:
+                enrolled = db.query(func.count(CourseClassMember.id)).filter(
+                    CourseClassMember.course_class_id == cc.id,
+                    CourseClassMember.status == "ENROLLED",
+                ).scalar() or 0
+                available = max_capacity - enrolled
+                if available <= 0:
+                    continue
+                to_add = remaining_students[:available]
+                remaining_students = remaining_students[available:]
+                
+                for sid in to_add:
+                    db.add(CourseClassMember(
+                        course_class_id=cc.id,
+                        student_id=sid,
+                        status="ENROLLED",
+                    ))
+                allocated_total += len(to_add)
+            
+            created_classes.append({
+                "subject_id": subject_id,
+                "subject_name": subject.name,
+                "student_count": student_count,
+                "new_classes": 0,
+                "existing_used": len(existing),
+                "allocated": student_count,
+            })
+            continue
+        
+        # 需要新建班级
+        # 先填满现有班级
+        remaining_students = student_ids[:]
+        for cc in existing:
+            enrolled = db.query(func.count(CourseClassMember.id)).filter(
+                CourseClassMember.course_class_id == cc.id,
+                CourseClassMember.status == "ENROLLED",
+            ).scalar() or 0
+            available = max_capacity - enrolled
+            if available <= 0:
+                continue
+            to_add = remaining_students[:available]
+            remaining_students = remaining_students[available:]
+            
+            for sid in to_add:
+                db.add(CourseClassMember(
+                    course_class_id=cc.id,
+                    student_id=sid,
+                    status="ENROLLED",
+                ))
+            allocated_total += len(to_add)
+        
+        # 计算需要的新班数量
+        new_count = math.ceil(len(remaining_students) / max_capacity)
+        
+        # 均匀分配学生到新班
+        students_per_class = math.ceil(len(remaining_students) / new_count)
+        
+        for i in range(new_count):
+            start = i * students_per_class
+            end = min(start + students_per_class, len(remaining_students))
+            class_students = remaining_students[start:end]
+            
+            if not class_students:
+                continue
+            
+            # 创建新课程班
+            new_class = CourseClass(
+                alevel_subject_id=subject_id,
+                name=f"{subject.name} {i + 1}班",
+                code=f"{subject.name[:3].upper()}{i+1}",
+                max_capacity=max_capacity,
+                current_enrollment=len(class_students),
+                semester=semester,
+                academic_year=academic_year,
+                status="ACTIVE",
+            )
+            db.add(new_class)
+            db.flush()  # 获取 new_class.id
+            
+            # 添加成员
+            for sid in class_students:
+                db.add(CourseClassMember(
+                    course_class_id=new_class.id,
+                    student_id=sid,
+                    status="ENROLLED",
+                ))
+            
+            allocated_total += len(class_students)
+            created_classes.append({
+                "subject_id": subject_id,
+                "subject_name": subject.name,
+                "student_count": student_count,
+                "new_class_id": new_class.id,
+                "new_class_name": new_class.name,
+                "class_size": len(class_students),
+            })
+    
+    db.commit()
+    
+    return create_response(
+        data={
+            "academic_year": academic_year,
+            "semester": semester,
+            "total_subjects": len(subject_students),
+            "allocated_students": allocated_total,
+            "created_classes": created_classes,
+        },
+        message=f"自动分班完成，共分配 {allocated_total} 名学生"
+    )

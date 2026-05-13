@@ -129,9 +129,14 @@ class TeacherAvailabilityConstraint(HardConstraint):
         if not teacher:
             return result
         
+        # 推断课程所属学部（从班级信息获取）
+        cls = data.get_class(record.class_id)
+        session_department = cls.department if cls else teacher.department
+        
         for period in record.periods:
             # is_available 方法会同时检查 unavailable_slots 和 daily_shifts
-            if not teacher.is_available(record.day, period):
+            # 使用 session_department 进行学部感知判断（支持跨学部教师）
+            if not teacher.is_available(record.day, period, session_department):
                 violation = self.create_violation(
                     f"{teacher.name} 在周{record.day}第{period}节不可用",
                     severity=ViolationSeverity.CRITICAL,
