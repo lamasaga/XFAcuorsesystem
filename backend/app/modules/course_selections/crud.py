@@ -10,6 +10,7 @@ from typing import Optional, List
 from sqlalchemy.orm import Session
 from app.modules.course_selections.models import CourseSelection
 from app.modules.course_selections.schemas import CourseSelectionCreate, CourseSelectionUpdate
+from app.modules.alevel_subjects.models import AlevelSubject
 
 
 def get_course_selection(db: Session, selection_id: int) -> Optional[CourseSelection]:
@@ -68,9 +69,15 @@ def get_course_selections_count(
 
 def create_course_selection(db: Session, selection: CourseSelectionCreate) -> CourseSelection:
     """创建选课记录"""
-    # 计算总周课时
+    # 计算总周课时：从 alevel_subjects 表查询每个科目的 weekly_hours
+    subject_ids = [item.alevel_subject_id for item in (selection.selections or [])]
+    subjects = db.query(AlevelSubject).filter(
+        AlevelSubject.id.in_(subject_ids),
+        AlevelSubject.is_deleted == False
+    ).all() if subject_ids else []
+    subject_hours = {s.id: s.weekly_hours for s in subjects}
     total_hours = sum(
-        item.get("weekly_hours", 4) 
+        subject_hours.get(item.alevel_subject_id, 4)
         for item in (selection.selections or [])
     )
     

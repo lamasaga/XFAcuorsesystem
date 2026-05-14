@@ -831,11 +831,11 @@ class CPScheduleSolver:
             if len(tids) < 2:
                 continue
 
-            # 收集该组所有教师的 session id
+            # 收集该组所有教师的 session id（使用预建索引，避免遍历所有 sessions）
             group_sids: Set[int] = set()
-            for s in self.sessions:
-                if set(s.teacher_ids) & set(tids):
-                    group_sids.add(s.id)
+            for tid in tids:
+                for sid in self._teacher_sessions.get(tid, []):
+                    group_sids.add(sid)
 
             # 创建组会选择变量: meeting_g_d_p
             meeting_vars = {}
@@ -945,7 +945,7 @@ class CPScheduleSolver:
             if debug:
                 solver.parameters.log_search_progress = True
 
-            solver.parameters.num_workers = 4
+            solver.parameters.num_workers = 0  # 0 = 自动检测并使用所有可用核心
             solver.parameters.random_seed = seed_base + idx * 37
 
             status = solver.Solve(self.model)
@@ -984,7 +984,7 @@ class CPScheduleSolver:
                     solver2.parameters.max_time_in_seconds = per_solution_limit
                     if debug:
                         solver2.parameters.log_search_progress = True
-                    solver2.parameters.num_workers = 4
+                    solver2.parameters.num_workers = 0
                     solver2.parameters.random_seed = seed_base + idx * 37 + 7
                     status2 = solver2.Solve(self.model)
                     if status2 in (cp_model.OPTIMAL, cp_model.FEASIBLE):
@@ -1073,7 +1073,7 @@ class CPScheduleSolver:
 
             solver = cp_model.CpSolver()
             solver.parameters.max_time_in_seconds = 30
-            solver.parameters.num_workers = 4
+            solver.parameters.num_workers = 0
             status = solver.Solve(self.model)
 
             if status in (cp_model.OPTIMAL, cp_model.FEASIBLE):
@@ -1140,13 +1140,20 @@ class CPScheduleSolver:
             idx: 当前方案索引
             lenient: 宽松模式，降低多样性要求（至少 5% 不同）
         """
+        # 预建 task_id -> sessions 映射，避免 O(n²) 嵌套循环
+        from collections import defaultdict
+        task_to_sessions: Dict[int, List[ScheduleSession]] = defaultdict(list)
+        for s in self.sessions:
+            for tid in s.task_ids:
+                task_to_sessions[tid].append(s)
+
         prev_assignments: List[Dict[int, Tuple[int, int]]] = []
         for records in prev_solutions:
             assignment: Dict[int, Tuple[int, int]] = {}
             seen_sessions: Set[int] = set()
             for r in records:
-                for s in self.sessions:
-                    if s.id not in seen_sessions and r.task_id in s.task_ids:
+                for s in task_to_sessions.get(r.task_id, []):
+                    if s.id not in seen_sessions:
                         assignment[s.id] = (r.day, r.period)
                         seen_sessions.add(s.id)
                         break
