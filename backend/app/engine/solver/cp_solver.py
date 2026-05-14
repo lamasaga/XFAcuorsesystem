@@ -421,18 +421,23 @@ class CPScheduleSolver:
         """
         获取 session 在指定天的最大节次
         
-        优先使用 time_slots 配置（学部感知），如果未加载则回退到硬编码逻辑。
+        优先使用 time_slots 配置（学部感知），同时保留周四 G8/G9 的 11 节课特殊处理。
         """
         # 优先使用配置化的时间槽数据
         if self.data.time_slots and session.department in self.data.time_slots:
-            return self.data.time_slots[session.department].get_max_period(day)
+            base = self.data.time_slots[session.department].get_max_period(day)
+        else:
+            # 回退到硬编码逻辑（向后兼容）
+            if day == 5:
+                base = 8
+            else:
+                base = 9
         
-        # 回退到硬编码逻辑（向后兼容）
-        if day == 5:
-            return 8
+        # 保留周四 G8/G9 的 11 节课特殊处理（配置化无法区分周四周二周三）
         if day == 4 and session.grades and all(g in ('G8', 'G9') for g in session.grades):
-            return 11
-        return 9
+            base = max(base, 11)
+        
+        return base
 
     @staticmethod
     def _is_art_pe(name: str) -> bool:
