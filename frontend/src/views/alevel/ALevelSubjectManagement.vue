@@ -1,6 +1,6 @@
 <template>
   <div class="subject-management">
-    <!-- 工具�?-->
+    <!-- 工具栏 -->
     <div class="toolbar">
       <div class="toolbar-left">
         <el-input
@@ -51,9 +51,9 @@
           <span class="code-text">{{ row.moduleCode || '-' }}</span>
         </template>
       </el-table-column>
-      <el-table-column prop="weeklyHours" label="周课�? width="90" align="center" />
+      <el-table-column prop="weeklyHours" label="周课时" width="90" align="center" />
       <el-table-column prop="maxStudents" label="容量" width="90" align="center" />
-      <el-table-column prop="isActive" label="状�? width="90" align="center">
+      <el-table-column prop="isActive" label="状态" width="90" align="center">
         <template #default="{ row }">
           <el-tag :type="row.isActive ? 'success' : 'info'" size="small">
             {{ row.isActive ? '启用' : '停用' }}
@@ -63,7 +63,7 @@
       <el-table-column label="操作" width="150" fixed="right">
         <template #default="{ row }">
           <el-button type="primary" link @click="editSubject(row)">编辑</el-button>
-          <el-popconfirm title="确定删除该科目吗�? @confirm="deleteSubject(row)">
+          <el-popconfirm title="确定删除该科目吗？" @confirm="deleteSubject(row)">
             <template #reference><el-button type="danger" link>删除</el-button></template>
           </el-popconfirm>
         </template>
@@ -82,7 +82,7 @@
       />
     </div>
     
-    <!-- 导入对话�?-->
+    <!-- 导入对话框 -->
     <ExcelImportDialog
       v-model="showImportDialog"
       title="导入 A-Level 科目数据"
@@ -91,7 +91,7 @@
       @success="loadSubjects"
     />
 
-    <!-- 添加/编辑对话�?-->
+    <!-- 添加/编辑对话框 -->
     <el-dialog
       v-model="showAddDialog"
       :title="editingSubject ? '编辑科目' : '添加科目'"
@@ -102,12 +102,12 @@
         <el-row :gutter="20">
           <el-col :span="12">
             <el-form-item label="科目名称" prop="name">
-              <el-input v-model="subjectForm.name" placeholder="如：数学、物�? />
+              <el-input v-model="subjectForm.name" placeholder="如：数学、物理" />
             </el-form-item>
           </el-col>
           <el-col :span="12">
             <el-form-item label="模块代码">
-              <el-input v-model="subjectForm.moduleCode" placeholder="�?9702/12" />
+              <el-input v-model="subjectForm.moduleCode" placeholder="如 9702/12" />
             </el-form-item>
           </el-col>
         </el-row>
@@ -132,12 +132,12 @@
         </el-row>
         <el-row :gutter="20">
           <el-col :span="12">
-            <el-form-item label="周课�? prop="weeklyHours">
+            <el-form-item label="周课时" prop="weeklyHours">
               <el-input-number v-model="subjectForm.weeklyHours" :min="1" :max="20" style="width: 100%" />
             </el-form-item>
           </el-col>
           <el-col :span="12">
-            <el-form-item label="最大容�? prop="maxStudents">
+            <el-form-item label="最大容量" prop="maxStudents">
               <el-input-number v-model="subjectForm.maxStudents" :min="1" :max="100" style="width: 100%" />
             </el-form-item>
           </el-col>
@@ -150,7 +150,7 @@
         <el-form-item label="科目描述">
           <el-input v-model="subjectForm.description" type="textarea" :rows="3" placeholder="科目描述（可选）" />
         </el-form-item>
-        <el-form-item label="启用状�?>
+        <el-form-item label="启用状态">
           <el-switch v-model="subjectForm.isActive" active-text="启用" inactive-text="停用" />
         </el-form-item>
       </el-form>
@@ -199,7 +199,7 @@ const subjectForm = ref({
 })
 
 const formRules = {
-  name: [{ required: true, message: '请输入科目名�?, trigger: 'blur' }],
+  name: [{ required: true, message: '请输入科目名称', trigger: 'blur' }],
   examBoard: [{ required: true, message: '请选择考试局', trigger: 'change' }],
   level: [{ required: true, message: '请选择级别', trigger: 'change' }]
 }
@@ -213,7 +213,7 @@ const mockSubjects = [
 
 const loadBaseSubjects = async () => {
   try {
-    const res = await getSubjects({ page: 1, page_size: 100 })
+    const res = await getSubjects({ page: 1, page_size: 200 })
     baseSubjects.value = res.data?.items || []
   } catch (e) {
     console.warn('加载基础科目失败:', e)
