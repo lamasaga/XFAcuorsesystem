@@ -1,5 +1,14 @@
 <template>
   <div class="app-container">
+    <!-- 后端就绪检测遮罩 -->
+    <div v-if="!backendReady" class="backend-loading-overlay">
+      <div class="backend-loading-content">
+        <el-icon class="loading-icon" :size="48"><Loading /></el-icon>
+        <p class="loading-text">正在连接后端服务...</p>
+        <p class="loading-hint">请稍候，首次启动可能需要 5-10 秒</p>
+      </div>
+    </div>
+
     <!-- 顶部导航栏 -->
     <header class="app-header">
       <div class="header-left">
@@ -76,13 +85,43 @@ import { ref, computed, markRaw, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { 
   User, OfficeBuilding, Reading, Clock, HomeFilled, DataAnalysis,
-  SetUp, Refresh, Calendar, Download, Cpu, Notebook, School
+  SetUp, Refresh, Calendar, Download, Cpu, Notebook, School, Loading
 } from '@element-plus/icons-vue'
 import { getOverviewStats } from '@/api/stats'
 import { getStudents } from '@/api/students'
 import { getCourseClasses } from '@/api/courseClasses'
 
 const route = useRoute()
+
+// 后端就绪状态
+const backendReady = ref(false)
+const backendCheckAttempts = ref(0)
+const MAX_BACKEND_CHECK_ATTEMPTS = 60  // 最多检测 60 次（约 30 秒）
+
+/**
+ * 轮询检测后端是否就绪
+ */
+const checkBackendReady = async () => {
+  const baseURL = import.meta.env.VITE_API_BASE || 'http://localhost:8001/api/v1'
+  const healthURL = baseURL.replace('/api/v1', '')  // 去掉 /api/v1，访问根路径
+
+  while (backendCheckAttempts.value < MAX_BACKEND_CHECK_ATTEMPTS) {
+    try {
+      const response = await fetch(healthURL, { method: 'GET', mode: 'no-cors' })
+      // no-cors 模式下无法读取 response，但只要不抛错就说明后端已启动
+      backendReady.value = true
+      break
+    } catch {
+      backendCheckAttempts.value++
+      await new Promise(r => setTimeout(r, 500))
+    }
+  }
+
+  // 即使检测失败（超时），也放行，让页面正常显示（后续请求自行处理错误）
+  if (!backendReady.value) {
+    backendReady.value = true
+  }
+}
 
 // 导航项配置 - 使用 markRaw 包装图标组件避免响应式警告
 const navItems = [
@@ -134,7 +173,9 @@ const loadFooterStats = async () => {
 }
 
 onMounted(() => {
-  loadFooterStats()
+  checkBackendReady().then(() => {
+    loadFooterStats()
+  })
 })
 
 // 判断路由是否激活
@@ -321,5 +362,46 @@ const isActiveRoute = (path) => {
 .status-engine {
   font-weight: 500;
   color: var(--text-secondary);
+}
+
+// 后端加载遮罩
+.backend-loading-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(255, 255, 255, 0.96);
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  .backend-loading-content {
+    text-align: center;
+
+    .loading-icon {
+      color: var(--el-color-primary);
+      animation: spin 1.5s linear infinite;
+    }
+
+    .loading-text {
+      margin-top: 16px;
+      font-size: 16px;
+      font-weight: 500;
+      color: var(--el-text-color-primary);
+    }
+
+    .loading-hint {
+      margin-top: 8px;
+      font-size: 13px;
+      color: var(--el-text-color-secondary);
+    }
+  }
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
 </style>
