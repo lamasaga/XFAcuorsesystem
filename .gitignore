@@ -63,4 +63,3 @@ Thumbs.db
 .env.*.local
 
 # 不上传到远端：文档目录（按部署仓库约定排除）
-docs/
