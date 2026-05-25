@@ -111,7 +111,7 @@
  *   <ExcelImportDialog
  *     v-model="showImportDialog"
  *     title="导入学生数据"
- *     template-url="http://localhost:8000/api/v1/students/import/template?format=xlsx"
+ *     template-url="http://localhost:8001/api/v1/students/import/template?format=xlsx"
  *     :import-api="importStudentsFile"
  *     @success="loadStudents"
  *   />

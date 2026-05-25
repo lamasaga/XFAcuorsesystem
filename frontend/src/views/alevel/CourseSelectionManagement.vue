@@ -1,16 +1,9 @@
 <template>
   <div class="selection-management">
-    <!-- 工具栏 -->
     <div class="toolbar">
       <div class="toolbar-left">
         <el-select v-model="filterStudentId" placeholder="选择学生" clearable style="width: 180px" @change="loadSelections">
           <el-option v-for="s in studentList" :key="s.id" :label="s.name + ' (' + s.studentNo + ')'" :value="s.id" />
-        </el-select>
-        <el-select v-model="filterStatus" placeholder="状态" clearable style="width: 130px" @change="loadSelections">
-          <el-option label="草稿" value="DRAFT" />
-          <el-option label="已提交" value="SUBMITTED" />
-          <el-option label="已审批" value="APPROVED" />
-          <el-option label="已拒绝" value="REJECTED" />
         </el-select>
         <el-select v-model="filterSemester" placeholder="学期" clearable style="width: 110px" @change="loadSelections">
           <el-option label="秋季" value="FALL" />
@@ -54,17 +47,9 @@
         </template>
       </el-table-column>
       <el-table-column prop="totalWeeklyHours" label="总课时" width="90" align="center" />
-      <el-table-column prop="status" label="状态" width="110">
-        <template #default="{ row }">
-          <el-tag :type="statusType(row.status)" size="small">
-            {{ statusText(row.status) }}
-          </el-tag>
-        </template>
-      </el-table-column>
-      <el-table-column label="操作" width="180" fixed="right">
+      <el-table-column label="操作" width="140" fixed="right">
         <template #default="{ row }">
           <el-button type="primary" link @click="editSelection(row)">编辑</el-button>
-          <el-button type="success" link @click="approveSelection(row)" v-if="row.status === 'SUBMITTED'">审批</el-button>
           <el-popconfirm title="确定删除该选课记录吗？" @confirm="deleteSelection(row)">
             <template #reference><el-button type="danger" link>删除</el-button></template>
           </el-popconfirm>
@@ -115,16 +100,6 @@
               </el-select>
             </el-form-item>
           </el-col>
-          <el-col :span="12">
-            <el-form-item label="状态">
-              <el-select v-model="selectionForm.status" style="width: 100%">
-                <el-option label="草稿" value="DRAFT" />
-                <el-option label="已提交" value="SUBMITTED" />
-                <el-option label="已审批" value="APPROVED" />
-                <el-option label="已拒绝" value="REJECTED" />
-              </el-select>
-            </el-form-item>
-          </el-col>
         </el-row>
         
         <el-divider content-position="left">选课科目</el-divider>
@@ -167,7 +142,6 @@ import { getAlevelSubjects } from '@/api/alevelSubjects'
 const loading = ref(false)
 const selections = ref([])
 const filterStudentId = ref('')
-const filterStatus = ref('')
 const filterSemester = ref('')
 const currentPage = ref(1)
 const pageSize = ref(20)
@@ -184,7 +158,6 @@ const selectionForm = ref({
   studentId: null,
   academicYear: '2025-2026',
   semester: 'FALL',
-  status: 'DRAFT',
   selections: [],
   note: ''
 })
@@ -196,19 +169,9 @@ const formRules = {
 }
 
 const mockSelections = [
-  { id: 1, studentId: 1, studentName: '张三', studentNo: '20251001', academicYear: '2025-2026', semester: 'FALL', selections: [{ alevel_subject_id: 1, priority: 1 }, { alevel_subject_id: 2, priority: 2 }], totalWeeklyHours: 10, status: 'DRAFT' },
-  { id: 2, studentId: 2, studentName: '李四', studentNo: '20251002', academicYear: '2025-2026', semester: 'FALL', selections: [{ alevel_subject_id: 1, priority: 1 }], totalWeeklyHours: 5, status: 'SUBMITTED' }
+  { id: 1, studentId: 1, studentName: '张三', studentNo: '20251001', academicYear: '2025-2026', semester: 'FALL', selections: [{ alevel_subject_id: 1, priority: 1 }, { alevel_subject_id: 2, priority: 2 }], totalWeeklyHours: 10 },
+  { id: 2, studentId: 2, studentName: '李四', studentNo: '20251002', academicYear: '2025-2026', semester: 'FALL', selections: [{ alevel_subject_id: 1, priority: 1 }], totalWeeklyHours: 5 }
 ]
-
-const statusType = (status) => {
-  const map = { DRAFT: 'info', SUBMITTED: 'warning', APPROVED: 'success', REJECTED: 'danger' }
-  return map[status] || 'info'
-}
-
-const statusText = (status) => {
-  const map = { DRAFT: '草稿', SUBMITTED: '已提交', APPROVED: '已审批', REJECTED: '已拒绝' }
-  return map[status] || status
-}
 
 const getSubjectName = (subjectId) => {
   const sub = alevelSubjectList.value.find(s => s.id === subjectId)
@@ -252,7 +215,6 @@ const loadSelections = async () => {
       page: currentPage.value,
       page_size: pageSize.value,
       student_id: filterStudentId.value || undefined,
-      status: filterStatus.value || undefined,
       semester: filterSemester.value || undefined
     })
     useMockData.value = false
@@ -271,7 +233,6 @@ const loadSelections = async () => {
     useMockData.value = true
     let filtered = [...mockSelections]
     if (filterStudentId.value) filtered = filtered.filter(s => s.studentId === filterStudentId.value)
-    if (filterStatus.value) filtered = filtered.filter(s => s.status === filterStatus.value)
     if (filterSemester.value) filtered = filtered.filter(s => s.semester === filterSemester.value)
     selections.value = filtered
     totalCount.value = filtered.length
@@ -304,7 +265,6 @@ const editSelection = (row) => {
     studentId: row.studentId,
     academicYear: row.academicYear,
     semester: row.semester,
-    status: row.status,
     selections: (row.selections || []).map(s => ({
       alevelSubjectId: s.alevel_subject_id || s.alevelSubjectId,
       priority: s.priority || 1
@@ -312,18 +272,6 @@ const editSelection = (row) => {
     note: row.note || ''
   }
   showAddDialog.value = true
-}
-
-const approveSelection = async (row) => {
-  try {
-    if (!useMockData.value) {
-      await updateCourseSelection(row.id, { status: 'APPROVED' })
-    }
-    row.status = 'APPROVED'
-    ElMessage.success('审批通过')
-  } catch (error) {
-    ElMessage.error('审批失败')
-  }
 }
 
 const saveSelection = async () => {
@@ -334,7 +282,6 @@ const saveSelection = async () => {
     student_id: selectionForm.value.studentId,
     academic_year: selectionForm.value.academicYear,
     semester: selectionForm.value.semester,
-    status: selectionForm.value.status,
     selections: selectionForm.value.selections.map(s => ({
       alevel_subject_id: s.alevelSubjectId,
       priority: s.priority
@@ -372,6 +319,7 @@ const saveSelection = async () => {
     showAddDialog.value = false
     editingSelection.value = null
     resetForm()
+    if (!useMockData.value) loadSelections()
   } catch (error) {
     ElMessage.error(error.response?.data?.detail || '操作失败')
   }
@@ -389,8 +337,11 @@ const deleteSelection = async (row) => {
 
 const resetForm = () => {
   selectionForm.value = {
-    studentId: null, academicYear: '2025-2026', semester: 'FALL',
-    status: 'DRAFT', selections: [], note: ''
+    studentId: null,
+    academicYear: '2025-2026',
+    semester: 'FALL',
+    selections: [],
+    note: ''
   }
 }
 

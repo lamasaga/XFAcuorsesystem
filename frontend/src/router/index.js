@@ -80,6 +80,12 @@ const routes = [
     meta: { title: '导出' }
   },
   {
+    path: '/help',
+    name: 'Help',
+    component: () => import('@/views/HelpGuide.vue'),
+    meta: { title: '使用帮助' }
+  },
+  {
     path: '/alevel',
     name: 'ALevelManagement',
     component: () => import('@/views/ALevelManagement.vue'),
@@ -114,7 +120,7 @@ const routes = [
 ]
 
 const router = createRouter({
-  history: createWebHistory(),
+  history: createWebHistory(import.meta.env.BASE_URL),
   routes
 })
 

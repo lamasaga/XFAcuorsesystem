@@ -31,6 +31,7 @@ from app.modules.alevel_subjects.schemas import (
     SimpleResponse,
 )
 from app.modules.alevel_subjects import service_import as import_service
+from app.modules.teachers.models import Teacher
 
 router = APIRouter()
 
@@ -63,7 +64,18 @@ async def get_alevel_subjects(
         is_active=is_active,
         search=search
     )
-    items = [AlevelSubjectResponse.model_validate(s).model_dump() for s in subjects]
+    # 查询教师名称映射
+    teacher_ids = {s.teacher_id for s in subjects if s.teacher_id}
+    teachers = {}
+    if teacher_ids:
+        teachers = {t.id: t.name for t in db.query(Teacher).filter(Teacher.id.in_(teacher_ids)).all()}
+    
+    items = []
+    for s in subjects:
+        data = AlevelSubjectResponse.model_validate(s).model_dump()
+        data["teacher_name"] = teachers.get(s.teacher_id, "")
+        items.append(data)
+    
     return create_pagination_response(
         items=items,
         total=total,
@@ -81,9 +93,13 @@ async def get_alevel_subject(
     subject = crud.get_alevel_subject(db, subject_id)
     if not subject:
         raise HTTPException(status_code=404, detail=f"科目不存在 (ID: {subject_id})")
-    return create_response(
-        data=AlevelSubjectResponse.model_validate(subject).model_dump()
-    )
+    data = AlevelSubjectResponse.model_validate(subject).model_dump()
+    if subject.teacher_id:
+        teacher = db.query(Teacher).filter(Teacher.id == subject.teacher_id).first()
+        data["teacher_name"] = teacher.name if teacher else ""
+    else:
+        data["teacher_name"] = ""
+    return create_response(data=data)
 
 
 @router.post("/", response_model=dict)

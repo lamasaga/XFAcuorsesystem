@@ -577,6 +577,7 @@ class AlevelScheduleSession:
     required_venue_type: Optional[str] = None
     department: str = "SENIOR"
     priority: int = 0
+    prefer_elective_slots: bool = True
     
     @property
     def sessions_count(self) -> int:

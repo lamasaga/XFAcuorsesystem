@@ -37,15 +37,19 @@ import { ElMessage } from 'element-plus'
  * 优先级：
  * 1. 环境变量 VITE_API_BASE（构建时注入）
  * 2. 同域模式：当前域名下的 /api/v1（Nginx 反向代理时使用）
- * 3. 开发默认：http://localhost:8000/api/v1
+ * 3. 开发默认：http://localhost:8001/api/v1
  */
-function getBaseURL() {
-  // 构建时通过环境变量注入
+export function getBaseURL() {
+  // 构建时通过环境变量注入（生产部署务必设置，或使用下方 PROD 同域回退）
   if (import.meta.env.VITE_API_BASE) {
     return import.meta.env.VITE_API_BASE
   }
-  // Electron 桌面模式或开发模式
-  return 'http://localhost:8000/api/v1'
+  // 生产构建且未注入变量：走当前站点同域 /api/v1（需 Nginx 将 /api 反代到后端）
+  if (import.meta.env.PROD) {
+    return '/api/v1'
+  }
+  // 本地开发默认
+  return 'http://localhost:8001/api/v1'
 }
 
 const request = axios.create({

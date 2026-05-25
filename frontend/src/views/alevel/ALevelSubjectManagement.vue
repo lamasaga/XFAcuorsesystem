@@ -53,6 +53,12 @@
       </el-table-column>
       <el-table-column prop="weeklyHours" label="周课时" width="90" align="center" />
       <el-table-column prop="maxStudents" label="容量" width="90" align="center" />
+      <el-table-column prop="teacherName" label="教师" width="120">
+        <template #default="{ row }">
+          <span v-if="row.teacherName">{{ row.teacherName }}</span>
+          <span v-else class="text-muted">未分配</span>
+        </template>
+      </el-table-column>
       <el-table-column prop="isActive" label="状态" width="90" align="center">
         <template #default="{ row }">
           <el-tag :type="row.isActive ? 'success' : 'info'" size="small">
@@ -147,6 +153,11 @@
             <el-option v-for="s in baseSubjects" :key="s.id" :label="s.name" :value="s.id" />
           </el-select>
         </el-form-item>
+        <el-form-item label="授课教师">
+          <el-select v-model="subjectForm.teacherId" placeholder="选择默认授课教师（可选）" clearable filterable style="width: 100%">
+            <el-option v-for="t in teacherList" :key="t.id" :label="t.name" :value="t.id" />
+          </el-select>
+        </el-form-item>
         <el-form-item label="科目描述">
           <el-input v-model="subjectForm.description" type="textarea" :rows="3" placeholder="科目描述（可选）" />
         </el-form-item>
@@ -168,6 +179,7 @@ import { ElMessage } from 'element-plus'
 import { Search, Plus, Upload } from '@element-plus/icons-vue'
 import { getAlevelSubjects, createAlevelSubject, updateAlevelSubject, deleteAlevelSubject as deleteAlevelSubjectApi, getAlevelSubjectImportTemplateUrl, importAlevelSubjectsFile } from '@/api/alevelSubjects'
 import { getSubjects } from '@/api/subjects'
+import { getTeachers } from '@/api/teachers'
 import ExcelImportDialog from '@/components/ExcelImportDialog.vue'
 
 const loading = ref(false)
@@ -185,6 +197,7 @@ const showImportDialog = ref(false)
 const editingSubject = ref(null)
 const formRef = ref(null)
 const baseSubjects = ref([])
+const teacherList = ref([])
 
 const subjectForm = ref({
   name: '',
@@ -194,6 +207,7 @@ const subjectForm = ref({
   weeklyHours: 4,
   maxStudents: 20,
   subjectId: null,
+  teacherId: null,
   description: '',
   isActive: true
 })
@@ -213,7 +227,7 @@ const mockSubjects = [
 
 const loadBaseSubjects = async () => {
   try {
-    const res = await getSubjects({ page: 1, page_size: 200 })
+    const res = await getSubjects({ page: 1, page_size: 100 })
     baseSubjects.value = res.data?.items || []
   } catch (e) {
     console.warn('加载基础科目失败:', e)
@@ -239,6 +253,8 @@ const loadSubjects = async () => {
       weeklyHours: s.weekly_hours,
       maxStudents: s.max_students,
       subjectId: s.subject_id,
+      teacherId: s.teacher_id,
+      teacherName: s.teacher_name || (s.teacher_id ? teacherList.value.find(t => t.id === s.teacher_id)?.name : ''),
       isActive: s.is_active
     }))
     totalCount.value = res.data?.total || 0
@@ -269,6 +285,7 @@ const editSubject = (row) => {
     weeklyHours: row.weeklyHours,
     maxStudents: row.maxStudents,
     subjectId: row.subjectId || null,
+    teacherId: row.teacherId || null,
     description: row.description || '',
     isActive: row.isActive
   }
@@ -287,6 +304,7 @@ const saveSubject = async () => {
     weekly_hours: subjectForm.value.weeklyHours,
     max_students: subjectForm.value.maxStudents,
     subject_id: subjectForm.value.subjectId || null,
+    teacher_id: subjectForm.value.teacherId || null,
     description: subjectForm.value.description || null,
     is_active: subjectForm.value.isActive
   }
@@ -334,12 +352,22 @@ const deleteSubject = async (row) => {
 const resetForm = () => {
   subjectForm.value = {
     name: '', moduleCode: '', examBoard: 'CAIE', level: 'AS',
-    weeklyHours: 4, maxStudents: 20, subjectId: null, description: '', isActive: true
+    weeklyHours: 4, maxStudents: 20, subjectId: null, teacherId: null, description: '', isActive: true
+  }
+}
+
+const loadTeachers = async () => {
+  try {
+    const res = await getTeachers({ page: 1, page_size: 500 })
+    teacherList.value = res.data?.items || []
+  } catch (e) {
+    console.warn('加载教师列表失败:', e)
   }
 }
 
 onMounted(() => {
   loadBaseSubjects()
+  loadTeachers()
   loadSubjects()
 })
 </script>

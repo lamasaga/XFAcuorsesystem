@@ -133,7 +133,7 @@
 import { ref, computed, onMounted, markRaw } from 'vue'
 import { 
   Cpu, User, OfficeBuilding, Reading, Calendar,
-  ArrowRight, Download, Setting, DataAnalysis
+  ArrowRight, Download, Setting, DataAnalysis, QuestionFilled
 } from '@element-plus/icons-vue'
 import { getOverviewStats } from '@/api/stats'
 
@@ -262,6 +262,14 @@ const operations = ref([
     path: '/export',
     bgColor: '#ede9fe',
     iconColor: '#7c3aed'
+  },
+  {
+    icon: markRaw(QuestionFilled),
+    title: '使用帮助',
+    desc: '查看系统操作指南',
+    path: '/help',
+    bgColor: '#e0f2fe',
+    iconColor: '#0284c7'
   }
 ])
 </script>

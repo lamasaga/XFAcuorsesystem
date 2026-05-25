@@ -403,7 +403,7 @@ async def allocate_course_classes(
             if not class_students:
                 continue
             
-            # 创建新课程班
+            # 创建新课程班（若科目有默认教师则自动带入）
             new_class = CourseClass(
                 alevel_subject_id=subject_id,
                 name=f"{subject.name} {i + 1}班",
@@ -413,6 +413,7 @@ async def allocate_course_classes(
                 semester=semester,
                 academic_year=academic_year,
                 status="ACTIVE",
+                teacher_id=subject.teacher_id,
             )
             db.add(new_class)
             db.flush()  # 获取 new_class.id

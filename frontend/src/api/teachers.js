@@ -16,15 +16,8 @@
  *   await createTeacher({ name: '张三', type: 'CN' })
  */
 
-import request from './index'
+import request, { getBaseURL } from './index'
 import axios from 'axios'
-
-function getBaseURL() {
-  if (import.meta.env.VITE_API_BASE) {
-    return import.meta.env.VITE_API_BASE
-  }
-  return 'http://localhost:8000/api/v1'
-}
 
 /**
  * 获取教师列表

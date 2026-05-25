@@ -22,6 +22,7 @@ class AlevelSubjectBase(BaseModel):
     max_students: int = Field(default=20, ge=1, le=100, description="最大学生人数")
     is_active: bool = Field(default=True, description="是否启用")
     description: Optional[str] = Field(default=None, max_length=500, description="科目描述")
+    teacher_id: Optional[int] = Field(default=None, description="默认授课教师ID")
 
 
 class AlevelSubjectCreate(AlevelSubjectBase):
@@ -40,6 +41,7 @@ class AlevelSubjectUpdate(BaseModel):
     max_students: Optional[int] = Field(default=None, ge=1, le=100, description="最大学生人数")
     is_active: Optional[bool] = Field(default=None, description="是否启用")
     description: Optional[str] = Field(default=None, max_length=500, description="科目描述")
+    teacher_id: Optional[int] = Field(default=None, description="默认授课教师ID")
 
 
 class AlevelSubjectResponse(AlevelSubjectBase):

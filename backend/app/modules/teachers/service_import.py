@@ -178,6 +178,8 @@ def import_teachers_from_rows(db: Session, rows: List[ImportRow]) -> ImportResul
 
         data = dict(r.data)
         name = data.get("name", r.raw_identifier or "")
+        # name 已单独作为唯一标识使用，避免在 TeacherCreate/TeacherUpdate 中重复传参
+        data.pop("name", None)
 
         # 处理教研组名称 → 教研组ID
         group_name = data.pop("research_group_name", None)

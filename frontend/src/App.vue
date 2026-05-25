@@ -32,6 +32,10 @@
       </nav>
       
       <div class="header-right">
+        <router-link to="/help" class="help-entry" title="使用帮助">
+          <el-icon><QuestionFilled /></el-icon>
+          <span>帮助</span>
+        </router-link>
         <div class="system-badge">
           <img class="badge-img" src="/logo.png" alt="logo" />
           <span>K-12 智能排课</span>
@@ -85,13 +89,15 @@ import { ref, computed, markRaw, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { 
   User, OfficeBuilding, Reading, Clock, HomeFilled, DataAnalysis,
-  SetUp, Refresh, Calendar, Download, Cpu, Notebook, School, Loading
+  SetUp, Refresh, Calendar, Download,   Cpu, Notebook, School, Loading, QuestionFilled
 } from '@element-plus/icons-vue'
 import { getOverviewStats } from '@/api/stats'
 import { getStudents } from '@/api/students'
 import { getCourseClasses } from '@/api/courseClasses'
 
 const route = useRoute()
+
+import { getBaseURL } from '@/api'
 
 // 后端就绪状态
 const backendReady = ref(false)
@@ -102,7 +108,7 @@ const MAX_BACKEND_CHECK_ATTEMPTS = 60  // 最多检测 60 次（约 30 秒）
  * 轮询检测后端是否就绪
  */
 const checkBackendReady = async () => {
-  const baseURL = import.meta.env.VITE_API_BASE || 'http://localhost:8001/api/v1'
+  const baseURL = getBaseURL()
   const healthURL = baseURL.replace('/api/v1', '')  // 去掉 /api/v1，访问根路径
 
   while (backendCheckAttempts.value < MAX_BACKEND_CHECK_ATTEMPTS) {
@@ -182,6 +188,9 @@ onMounted(() => {
 const isActiveRoute = (path) => {
   if (path === '/dashboard') {
     return route.path === '/dashboard' || route.path === '/'
+  }
+  if (path === '/help') {
+    return route.path === '/help'
   }
   return route.path.startsWith(path)
 }
@@ -289,6 +298,33 @@ const isActiveRoute = (path) => {
 }
 
 .header-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+
+  .help-entry {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 14px;
+    border-radius: 20px;
+    background: rgba(255, 255, 255, 0.12);
+    color: rgba(255, 255, 255, 0.9);
+    text-decoration: none;
+    font-size: 13px;
+    font-weight: 500;
+    transition: background 0.2s, color 0.2s;
+
+    .el-icon {
+      font-size: 16px;
+    }
+
+    &:hover {
+      color: #fff;
+      background: rgba(255, 255, 255, 0.22);
+    }
+  }
+
   .system-badge {
     display: flex;
     align-items: center;

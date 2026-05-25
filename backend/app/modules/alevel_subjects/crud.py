@@ -77,7 +77,8 @@ def create_alevel_subject(db: Session, subject: AlevelSubjectCreate) -> AlevelSu
         weekly_hours=subject.weekly_hours,
         max_students=subject.max_students,
         is_active=subject.is_active,
-        description=subject.description
+        description=subject.description,
+        teacher_id=subject.teacher_id,
     )
     db.add(db_subject)
     db.commit()

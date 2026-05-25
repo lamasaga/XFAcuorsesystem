@@ -11,8 +11,6 @@ from sqlalchemy.orm import Session
 from app.modules.course_selections.models import CourseSelection
 from app.modules.course_selections.schemas import CourseSelectionCreate, CourseSelectionUpdate
 from app.modules.alevel_subjects.models import AlevelSubject
-
-
 def get_course_selection(db: Session, selection_id: int) -> Optional[CourseSelection]:
     """根据ID获取选课记录"""
     return db.query(CourseSelection).filter(
@@ -85,7 +83,7 @@ def create_course_selection(db: Session, selection: CourseSelectionCreate) -> Co
         student_id=selection.student_id,
         academic_year=selection.academic_year,
         semester=selection.semester,
-        status=selection.status,
+        status="APPROVED",
         selections=[s.model_dump() for s in selection.selections] if selection.selections else [],
         total_weekly_hours=selection.total_weekly_hours or total_hours,
         note=selection.note
@@ -107,6 +105,7 @@ def update_course_selection(
         return None
     
     update_data = selection_update.model_dump(exclude_unset=True)
+    update_data.pop("status", None)
     
     # 如果更新了选课列表，重新序列化
     if "selections" in update_data and update_data["selections"] is not None:
@@ -117,6 +116,8 @@ def update_course_selection(
     
     for field, value in update_data.items():
         setattr(db_selection, field, value)
+    
+    db_selection.status = "APPROVED"
     
     db.commit()
     db.refresh(db_selection)

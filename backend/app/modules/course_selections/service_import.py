@@ -84,17 +84,6 @@ SELECTION_IMPORT_FIELDS: List[ImportField] = [
         description="学期",
         example="FALL",
     ),
-    ImportField(
-        key="status",
-        header="状态",
-        required=False,
-        field_type="enum",
-        enum_values=["DRAFT", "SUBMITTED", "APPROVED", "REJECTED"],
-        enum_display=["草稿", "已提交", "已批准", "已拒绝"],
-        default="DRAFT",
-        description="选课状态",
-        example="DRAFT",
-    ),
 ]
 
 importer = BaseImporter(
@@ -174,7 +163,6 @@ def import_selections_from_rows(db: Session, rows: List[ImportRow]) -> ImportRes
                     student_id=student_id,
                     academic_year=d.get("academic_year", "2025-2026"),
                     semester=d.get("semester", "FALL"),
-                    status=d.get("status", "DRAFT"),
                     selections=[selection_item],
                 )
                 crud.create_course_selection(db, selection_data)

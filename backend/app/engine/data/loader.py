@@ -312,6 +312,16 @@ class DatabaseLoader:
         ).all()
         subject_hours = {s.id: s.weekly_hours for s in subjects}
         
+        # 查询学生年级，用于判断 G10 课程是否限制选修课时段
+        from app.modules.students.models import Student as StudentORM
+        all_student_ids = list(set(
+            sid for ids in class_students.values() for sid in ids
+        ))
+        student_grades = {}
+        if all_student_ids:
+            for s in self.db.query(StudentORM).filter(StudentORM.id.in_(all_student_ids)).all():
+                student_grades[s.id] = s.grade
+        
         sessions = []
         for cc in course_classes:
             student_ids = class_students.get(cc.id, [])
@@ -319,6 +329,9 @@ class DatabaseLoader:
                 continue  # 没有学生的课程班不排课
             
             weekly_hours = subject_hours.get(cc.alevel_subject_id, 2)
+            
+            # 若课程班包含 G10 学生，不强制优先选修课时段
+            has_g10 = any(student_grades.get(sid) == "G10" for sid in student_ids)
             
             sessions.append(AlevelScheduleSession(
                 course_class_id=cc.id,
@@ -330,6 +343,7 @@ class DatabaseLoader:
                 required_venue_type=None,  # A-Level 课程暂不考虑场地限制
                 department="SENIOR",
                 priority=100,  # A-Level 课程优先级较高
+                prefer_elective_slots=not has_g10,
             ))
         
         print(f"    A-Level 课程班: {len(sessions)} 个")

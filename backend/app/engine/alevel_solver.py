@@ -266,12 +266,20 @@ class AlevelScheduleSolver:
                 self.model.AddAtMostOne(vars_list)
 
     def _add_objective(self, sessions: List[AlevelScheduleSession]):
-        """添加目标函数：优先选修课时段（第10-11节）"""
+        """添加目标函数：优先选修课时段（第10-11节）
+        
+        支持按 session 级别控制：若某 session 的 prefer_elective_slots=False，
+        则该课程班不享受选修课时段加分，可在任意空闲时间排课。
+        """
         if not self.prefer_elective_slots:
             return
         
         terms = []
         for idx, session in enumerate(sessions):
+            # 按 session 级别判断
+            if not getattr(session, 'prefer_elective_slots', True):
+                continue
+            
             for (day, period), var in self.x[idx].items():
                 # 优先级评分
                 score = 0

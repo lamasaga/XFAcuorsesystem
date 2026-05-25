@@ -51,8 +51,8 @@ class CourseSelection(Base):
     status = Column(
         String(20),
         nullable=False,
-        default="DRAFT",
-        comment="状态：DRAFT=草稿，SUBMITTED=已提交，APPROVED=已审批，REJECTED=已拒绝"
+        default="APPROVED",
+        comment="状态（保留字段，新建默认已批准，供自动分班等流程筛选）"
     )
     
     selections = Column(

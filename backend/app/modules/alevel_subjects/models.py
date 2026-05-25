@@ -97,6 +97,13 @@ class AlevelSubject(Base):
         comment="更新时间"
     )
     
+    teacher_id = Column(
+        Integer,
+        ForeignKey("teachers.id"),
+        nullable=True,
+        comment="默认授课教师ID"
+    )
+    
     is_deleted = Column(
         Boolean,
         default=False,
