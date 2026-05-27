@@ -106,7 +106,12 @@ class LayerScheduler(BaseScheduler):
             bool: 是否完全成功
         """
         group_type_name = "合班" if group.is_combine else "分层"
-        target_info = f"班级IDs={group.class_ids}" if group.is_combine else f"年级={group.grades}"
+        if group.is_combine:
+            target_info = f"班级IDs={group.class_ids}"
+        elif group.is_single_class:
+            target_info = f"单班 class_ids={group.class_ids}"
+        else:
+            target_info = f"年级={group.grades}"
         print(f"    处理{group_type_name}组: ID={group.id}, 科目={group.subject_name}, {target_info}")
         
         # 获取关联的所有任务

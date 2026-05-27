@@ -36,7 +36,8 @@ export function getLayerGroup(id) {
  *   - layer_count: 分层数量 (分层模式使用)
  *   - teacher_ids: 教师ID列表 (分层多个，合班一个)
  *   - weekly_hours: 周课时
- *   - is_cross_grade: 是否跨年级 (仅分层模式)
+ *   - layer_scope: 分层范围 'GRADE'|'CROSS_GRADE'|'SINGLE_CLASS' (仅分层模式)
+ *   - is_cross_grade: 是否跨年级 (兼容字段，等价于 CROSS_GRADE)
  *   - needs_continuous: 是否需要连堂
  */
 export function createLayerGroup(data) {

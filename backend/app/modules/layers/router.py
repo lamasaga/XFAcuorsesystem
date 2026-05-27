@@ -7,107 +7,21 @@ from app.core.dependencies import get_db
 from app.core.importer import create_import_response
 from . import schemas, crud, models
 from . import service_import as import_service
+from .sync_tasks import resolve_layer_scope, sync_layer_tasks
 from app.modules.tasks.models import TeachingTask
-from app.modules.classes.models import Class as ClassModel
 
 router = APIRouter(
     tags=["分层/合班课程 (Layer & Combine Courses)"]
 )
 
 
-def _sync_layer_tasks(db: Session, layer_group: models.LayerGroup):
-    """
-    同步分层/合班课程的教学任务
-    
-    根据课程类型自动创建教学任务：
-    - LAYER（分层）：为涉及年级的所有班级创建 Task，教师轮流分配
-    - COMBINE（合班）：为指定的班级创建 Task，使用同一个教师
-    
-    这确保了排课时能正确锁定所有涉及班级的时间。
-    """
-    # 删除该分层组原有的所有教学任务
-    db.query(TeachingTask).filter(
-        TeachingTask.layer_group_id == layer_group.id,
-        TeachingTask.is_deleted == False
-    ).update({"is_deleted": True})
-    
-    # 如果没有配置教师，则不创建任务
-    teacher_ids = layer_group.teacher_ids or []
-    if not teacher_ids:
-        db.commit()
-        return
-    
-    # 根据课程类型获取涉及的班级
-    group_type = layer_group.group_type or "LAYER"
-    target_classes = []
-    class_ids = layer_group.class_ids or []
-    
-    if class_ids:
-        # 优先使用 class_ids（无论 LAYER 还是 COMBINE 模式）
-        target_classes = db.query(ClassModel).filter(
-            ClassModel.id.in_(class_ids),
-            ClassModel.is_deleted == False
-        ).all()
-    elif group_type == "COMBINE":
-        # 合班模式但 class_ids 为空 → 无法创建任务
-        pass
-    else:
-        # 分层模式且 class_ids 为空（兼容旧数据）：按 grades 查询
-        grades = layer_group.grades or []
-        if grades:
-            target_classes = db.query(ClassModel).filter(
-                ClassModel.grade.in_(grades),
-                ClassModel.is_deleted == False
-            ).all()
-            
-            # 如果通过 grade 字段没找到，尝试从班级名称解析
-            if not target_classes:
-                from sqlalchemy import or_
-                conditions = [ClassModel.name.contains(g) for g in grades]
-                target_classes = db.query(ClassModel).filter(
-                    or_(*conditions),
-                    ClassModel.is_deleted == False
-                ).all()
-    
-    if not target_classes:
-        db.commit()
-        return
-    
-    # 为每个班级创建教学任务
-    for idx, cls in enumerate(target_classes):
-        if group_type == "COMBINE":
-            # 合班模式：所有班级使用同一个教师
-            teacher_id = teacher_ids[0] if teacher_ids else None
-            note = f"合班课程 - {cls.name}"
-        else:
-            # 分层模式：教师轮流分配给不同班级
-            teacher_idx = idx % len(teacher_ids)
-            teacher_id = teacher_ids[teacher_idx]
-            layer_num = teacher_idx + 1
-            note = f"分层课程第{layer_num}层 - {cls.name}"
-        
-        if not teacher_id or teacher_id <= 0:
-            continue
-        
-        # 创建教学任务
-        task = TeachingTask(
-            teacher_id=teacher_id,
-            class_id=cls.id,
-            subject_id=layer_group.subject_id,
-            weekly_hours=layer_group.weekly_hours,
-            is_continuous=layer_group.needs_continuous,
-            continuous_count=2 if layer_group.needs_continuous else 1,
-            layer_group_id=layer_group.id,
-            note=note
-        )
-        db.add(task)
-    
-    db.commit()
-
-
 def serialize_layer_group(group: models.LayerGroup) -> dict:
     """将 LayerGroup ORM 对象转换为字典"""
-    return schemas.LayerGroupResponse.model_validate(group).model_dump()
+    data = schemas.LayerGroupResponse.model_validate(group).model_dump()
+    if not data.get("layer_scope"):
+        data["layer_scope"] = resolve_layer_scope(group)
+        data["is_cross_grade"] = data["layer_scope"] == "CROSS_GRADE"
+    return data
 
 
 @router.get("/", response_model=dict)
@@ -208,7 +122,7 @@ def create_layer_group(
     new_group = crud.create_layer_group(db, group=group)
     
     # 自动同步教学任务
-    _sync_layer_tasks(db, new_group)
+    sync_layer_tasks(db, new_group)
     
     return {
         "code": 200,
@@ -229,7 +143,7 @@ def update_layer_group(
         raise HTTPException(status_code=404, detail="分层课程不存在")
     
     # 重新同步教学任务
-    _sync_layer_tasks(db, updated_group)
+    sync_layer_tasks(db, updated_group)
     
     return {
         "code": 200,

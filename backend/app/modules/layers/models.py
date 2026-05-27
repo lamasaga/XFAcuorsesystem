@@ -9,7 +9,10 @@ class LayerGroup(Base):
     分层/合班课程模型 (The 'Big Rock')
     
     支持两种模式：
-    1. LAYER (分层)：年级内所有班级参与，学生按能力分层，多个老师同时教不同层
+    1. LAYER (分层)：多个老师同时教不同层；范围由 layer_scope 决定
+       - GRADE：同年级内多班参与
+       - CROSS_GRADE：跨年级混排
+       - SINGLE_CLASS：单一班级内分层
     2. COMBINE (合班)：年级内指定班级合并上课，同一个老师教
     
     分层示例：G6 数学分层，3层3个老师，G6所有班级学生参与
@@ -41,7 +44,11 @@ class LayerGroup(Base):
     # 合班模式：数组长度为1，只有一个老师
     teacher_ids = Column(PortableArray(item_type="integer"), nullable=True, default=[])
     
-    # 是否跨年级 (True=跨年级混排, False=同年级平行)，仅分层模式使用
+    # 分层范围（仅 LAYER 模式）：GRADE / CROSS_GRADE / SINGLE_CLASS
+    layer_scope = Column(String(20), default="GRADE", nullable=False,
+                        comment="分层范围：GRADE=同年级, CROSS_GRADE=跨年级, SINGLE_CLASS=单班")
+
+    # 是否跨年级（兼容旧接口；与 layer_scope=CROSS_GRADE 等价）
     is_cross_grade = Column(Boolean, default=False)
     
     # 每周课时数

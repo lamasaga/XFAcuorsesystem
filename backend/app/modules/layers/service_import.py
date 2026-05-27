@@ -21,6 +21,7 @@ from app.core.importer import (
 )
 from app.modules.layers import crud
 from app.modules.layers.schemas import LayerGroupCreate
+from app.modules.layers.sync_tasks import sync_layer_tasks
 from app.modules.subjects.models import Subject
 from app.modules.teachers.models import Teacher
 from app.modules.classes.models import Class
@@ -55,6 +56,17 @@ LAYER_IMPORT_FIELDS: List[ImportField] = [
         max_length=50,
         description="科目名称（必须与系统中已存在的科目匹配）",
         example="数学",
+    ),
+    ImportField(
+        key="layer_scope",
+        header="分层类型",
+        required=False,
+        field_type="enum",
+        enum_values=["GRADE", "CROSS_GRADE", "SINGLE_CLASS"],
+        enum_display=["同年级分层", "跨年级分层", "单一班级分层"],
+        default="GRADE",
+        description="仅分层模式；单班分层时班级名称列表只能填一个班",
+        example="同年级分层",
     ),
     ImportField(
         key="grades",
@@ -217,7 +229,18 @@ def import_layers_from_rows(db: Session, rows: List[ImportRow]) -> ImportResult:
         grades = d.get("grades") or []
         group_type = d.get("group_type", "LAYER")
         layer_count = d.get("layer_count", 2 if group_type == "LAYER" else 1)
-        
+        layer_scope = d.get("layer_scope") or "GRADE"
+
+        if group_type == "LAYER" and layer_scope == "SINGLE_CLASS":
+            if len(class_ids) != 1:
+                result.failed += 1
+                result.errors.append(ImportErrorItem(
+                    row_number=row.row_number,
+                    identifier=subject_name,
+                    message="单一班级分层须在「班级名称」列填写且仅填写一个班级",
+                ))
+                continue
+
         try:
             group_data = LayerGroupCreate(
                 group_type=group_type,
@@ -226,11 +249,13 @@ def import_layers_from_rows(db: Session, rows: List[ImportRow]) -> ImportResult:
                 class_ids=class_ids,
                 layer_count=layer_count,
                 teacher_ids=teacher_ids,
+                layer_scope=layer_scope,
                 weekly_hours=d.get("weekly_hours", 2),
                 needs_continuous=d.get("needs_continuous", False),
                 description=d.get("description"),
             )
-            crud.create_layer_group(db, group_data)
+            new_group = crud.create_layer_group(db, group_data)
+            sync_layer_tasks(db, new_group)
             result.created += 1
         except Exception as e:
             result.failed += 1

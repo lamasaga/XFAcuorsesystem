@@ -187,6 +187,16 @@ class ScheduleValidator:
         for (cid, d, p), items in slots.items():
             if len(items) <= 1:
                 continue
+            # 同一分层组在同一时段的多条记录（如单班分层多教师）不算冲突
+            layer_gids = set()
+            for it in items:
+                task = self.tasks.get(it.task_id) if it.task_id else None
+                if not task or not task.layer_group_id:
+                    break
+                layer_gids.add(task.layer_group_id)
+            else:
+                if len(layer_gids) == 1:
+                    continue
             cn = self.classes.get(cid, f"C{cid}")
             subjs = [self.subjects[i.subject_id].name
                      if i.subject_id in self.subjects else ""

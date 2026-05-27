@@ -33,7 +33,7 @@ from app.modules.teachers.models import Teacher  # noqa: F401
 from app.modules.classes.models import Class as ClassModel
 from app.modules.tasks.models import TeachingTask  # noqa: F401
 from app.modules.layers.models import LayerGroup
-from app.modules.layers.router import _sync_layer_tasks
+from app.modules.layers.sync_tasks import sync_layer_tasks
 
 
 def infer_class_type(group: LayerGroup) -> str | None:
@@ -102,11 +102,27 @@ def resync_all():
             print(f"    描述: {group.description or '(无)'}")
             print(f"    现有 class_ids: {existing_class_ids}")
             
+            layer_scope = getattr(group, "layer_scope", None) or (
+                "CROSS_GRADE" if group.is_cross_grade else "GRADE"
+            )
+            if layer_scope == "SINGLE_CLASS":
+                if existing_class_ids:
+                    print(f"    [单班分层] 保持 class_ids，重新同步任务...")
+                    sync_layer_tasks(db, group)
+                    updated_count += 1
+                else:
+                    print(f"    [单班分层] ⚠ class_ids 为空，跳过")
+                    warnings.append(
+                        f"单班分层组 #{group.id} ({subject_name}): class_ids 为空"
+                    )
+                    skipped_count += 1
+                continue
+
             if group_type == "COMBINE":
                 # 合班组：class_ids 应已正确设置，直接重新同步任务
                 if existing_class_ids:
                     print(f"    [合班] class_ids 已设置，重新同步任务...")
-                    _sync_layer_tasks(db, group)
+                    sync_layer_tasks(db, group)
                     updated_count += 1
                 else:
                     print(f"    [合班] ⚠ class_ids 为空，跳过")
@@ -142,7 +158,7 @@ def resync_all():
                     group.class_ids = new_class_ids
                     db.add(group)
                     db.flush()
-                    _sync_layer_tasks(db, group)
+                    sync_layer_tasks(db, group)
                     updated_count += 1
                     print(f"    [OK] 已更新 class_ids 并重新同步任务")
                 else:
@@ -174,7 +190,7 @@ def resync_all():
                     group.class_ids = new_class_ids
                     db.add(group)
                     db.flush()
-                    _sync_layer_tasks(db, group)
+                    sync_layer_tasks(db, group)
                     updated_count += 1
                     print(f"    [OK] 已更新 class_ids（全部班级）并重新同步任务")
                 else:

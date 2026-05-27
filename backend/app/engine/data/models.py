@@ -436,10 +436,10 @@ class LayerGroup:
     分层/合班课程数据模型
     
     支持两种模式：
-    - LAYER（分层）：年级内所有班级参与，学生按能力分层，多个老师同时教不同层
+    - LAYER（分层）：多个老师同时教不同层（layer_scope 区分同年级/跨年级/单班）
     - COMBINE（合班）：年级内指定班级合并上课，同一个老师教
     
-    分层示例：G6 数学分层，3层3个老师，G6所有班级学生参与
+    分层示例：G6 数学同年级分层；G6-G7 英语跨年级分层；IG6-1 班内数学分 3 层
     合班示例：G6-1 和 G6-2 合班上体育，1个老师教两个班
     
     Attributes:
@@ -451,7 +451,8 @@ class LayerGroup:
         class_ids: 指定班级ID列表（合班模式使用）
         layer_count: 分层数量（需要几位老师同时上）
         teacher_ids: 每层对应的教师ID列表
-        is_cross_grade: 是否跨年级
+        layer_scope: 分层范围 GRADE/CROSS_GRADE/SINGLE_CLASS
+        is_cross_grade: 是否跨年级（兼容字段）
         weekly_hours: 每周课时数
         needs_continuous: 是否需要连堂
         task_ids: 关联的任务ID列表（由系统自动创建）
@@ -464,6 +465,7 @@ class LayerGroup:
     group_type: str = "LAYER"  # LAYER 或 COMBINE
     class_ids: List[int] = field(default_factory=list)  # 合班时指定的班级
     teacher_ids: List[int] = field(default_factory=list)
+    layer_scope: str = "GRADE"
     is_cross_grade: bool = False
     weekly_hours: int = 4
     needs_continuous: bool = False
@@ -473,6 +475,17 @@ class LayerGroup:
     def is_combine(self) -> bool:
         """是否是合班类型"""
         return self.group_type == "COMBINE"
+
+    @property
+    def resolved_layer_scope(self) -> str:
+        """解析分层范围（兼容旧数据）。"""
+        if self.layer_scope in ("GRADE", "CROSS_GRADE", "SINGLE_CLASS"):
+            return self.layer_scope
+        return "CROSS_GRADE" if self.is_cross_grade else "GRADE"
+
+    @property
+    def is_single_class(self) -> bool:
+        return self.resolved_layer_scope == "SINGLE_CLASS"
     
     @property
     def complexity(self) -> int:
@@ -482,14 +495,13 @@ class LayerGroup:
         复杂度越高越难排，应该优先处理。
         """
         score = 0
-        # 跨年级更复杂
-        if self.is_cross_grade:
+        scope = self.resolved_layer_scope
+        if scope == "CROSS_GRADE":
             score += 100
-        # 分层数量越多越复杂
+        elif scope == "SINGLE_CLASS":
+            score += 30
         score += self.layer_count * 20
-        # 涉及年级越多越复杂
         score += len(self.grades) * 10
-        # 合班涉及的班级数量
         score += len(self.class_ids) * 15
         return score
     
@@ -505,6 +517,9 @@ class LayerGroup:
             class_ids=obj.class_ids or [],
             layer_count=obj.layer_count,
             teacher_ids=obj.teacher_ids or [],
+            layer_scope=getattr(obj, "layer_scope", None) or (
+                "CROSS_GRADE" if obj.is_cross_grade else "GRADE"
+            ),
             is_cross_grade=obj.is_cross_grade,
             weekly_hours=obj.weekly_hours,
             needs_continuous=obj.needs_continuous,

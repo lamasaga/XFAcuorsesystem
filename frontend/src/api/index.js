@@ -73,6 +73,17 @@ const request = axios.create({
 // - 记录日志
 request.interceptors.request.use(
   (config) => {
+    // FastAPI 列表接口多为 @router.get("/")，无尾斜杠会 307；生产经 Nginx 时 307 可能丢端口，统一补尾斜杠
+    if (config.url) {
+      const [path, query = ''] = config.url.split('?')
+      const segments = path.split('/').filter(Boolean)
+      const last = segments[segments.length - 1]
+      const looksLikeId = segments.length > 1 && last !== undefined && /^-?\d+$/.test(last)
+      if (!looksLikeId && path && !path.endsWith('/')) {
+        config.url = query ? `${path}/?${query}` : `${path}/`
+      }
+    }
+
     // 这里可以添加 token
     // const token = localStorage.getItem('token')
     // if (token) {

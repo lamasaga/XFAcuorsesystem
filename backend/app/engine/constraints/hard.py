@@ -90,6 +90,10 @@ class ClassConflictConstraint(HardConstraint):
                     overlap = record_periods & existing_periods
                     
                     if overlap:
+                        # 同一分层组在同一时段（单班多教师分层）允许共存
+                        if (record.layer_group_id
+                                and record.layer_group_id == existing.layer_group_id):
+                            continue
                         cls = data.get_class(record.class_id)
                         class_name = cls.name if cls else f"班级{record.class_id}"
                         

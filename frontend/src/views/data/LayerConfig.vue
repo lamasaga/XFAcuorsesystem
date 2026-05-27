@@ -24,8 +24,9 @@
       <div v-for="group in layerGroups" :key="group.id" 
         class="layer-group-card" 
         :class="{ 
-          'cross-grade': group.is_cross_grade, 
-          'highlight': group.is_cross_grade,
+          'cross-grade': resolveLayerScope(group) === 'CROSS_GRADE', 
+          'highlight': resolveLayerScope(group) === 'CROSS_GRADE',
+          'single-class-card': resolveLayerScope(group) === 'SINGLE_CLASS',
           'combine-card': group.group_type === 'COMBINE'
         }">
         <div class="group-header">
@@ -55,7 +56,8 @@
             <span class="label">适用年级:</span>
             <span class="value">
               <el-tag v-for="g in group.grades" :key="g" size="small" class="grade-tag">{{ g }}</el-tag>
-              <span v-if="group.is_cross_grade" class="cross-hint">（跨年级混合）</span>
+              <span v-if="resolveLayerScope(group) === 'CROSS_GRADE'" class="cross-hint">（跨年级混合）</span>
+              <span v-else-if="resolveLayerScope(group) === 'SINGLE_CLASS'" class="cross-hint single-hint">（单班内分层）</span>
             </span>
           </div>
           <div v-if="group.group_type !== 'COMBINE' && group.class_ids && group.class_ids.length > 0" class="info-row">
@@ -78,7 +80,14 @@
           <!-- 分层数量（仅分层模式） -->
           <div v-if="group.group_type !== 'COMBINE'" class="info-row">
             <span class="label">分层数量:</span>
-            <span class="value">每年级 <strong>{{ group.layer_count }}</strong> 层</span>
+            <span class="value">
+              <template v-if="resolveLayerScope(group) === 'SINGLE_CLASS'">
+                共 <strong>{{ group.layer_count }}</strong> 层
+              </template>
+              <template v-else>
+                每年级 <strong>{{ group.layer_count }}</strong> 层
+              </template>
+            </span>
           </div>
           <div class="info-row">
             <span class="label">周课时:</span>
@@ -109,9 +118,13 @@
               <span v-else class="no-teacher">未配置教师</span>
             </span>
           </div>
-          <el-alert v-if="group.is_cross_grade && group.group_type !== 'COMBINE'" 
+          <el-alert v-if="resolveLayerScope(group) === 'CROSS_GRADE' && group.group_type !== 'COMBINE'" 
             type="warning" :closable="false" show-icon class="cross-alert">
             跨年级分层约束最强：所有{{ group.layer_count }}层必须安排在完全相同的时间槽
+          </el-alert>
+          <el-alert v-if="resolveLayerScope(group) === 'SINGLE_CLASS' && group.group_type !== 'COMBINE'" 
+            type="warning" :closable="false" show-icon class="cross-alert">
+            单一班级分层：同一班级内{{ group.layer_count }}位教师同时上课，各教一个层级
           </el-alert>
           <el-alert v-if="group.group_type === 'COMBINE'" 
             type="info" :closable="false" show-icon class="cross-alert">
@@ -148,31 +161,55 @@
         <!-- 分层模式：年级选择 -->
         <template v-if="layerForm.group_type !== 'COMBINE'">
           <el-form-item label="分层类型">
-            <el-radio-group v-model="layerForm.is_cross_grade">
-              <el-radio :value="false">同年级分层</el-radio>
-              <el-radio :value="true">跨年级分层</el-radio>
+            <el-radio-group v-model="layerForm.layer_scope" @change="onLayerScopeChange">
+              <el-radio value="GRADE">同年级分层</el-radio>
+              <el-radio value="CROSS_GRADE">跨年级分层</el-radio>
+              <el-radio value="SINGLE_CLASS">单一班级分层</el-radio>
             </el-radio-group>
+            <div class="form-hint block-hint">
+              同年级/跨年级：多个行政班学生混合分层；单一班级：仅一个班内按能力分层上课
+            </div>
           </el-form-item>
-          <el-form-item label="适用年级">
+          <el-form-item v-if="layerForm.layer_scope === 'SINGLE_CLASS'" label="选择年级">
+            <el-select v-model="selectedGradeForSingle" placeholder="先选择年级" @change="onSingleClassGradeChange">
+              <el-option v-for="g in gradeOptions" :key="g" :label="g" :value="g" />
+            </el-select>
+          </el-form-item>
+          <el-form-item v-else label="适用年级">
             <el-checkbox-group v-model="layerForm.grades" @change="onLayerGradesChange">
               <el-checkbox v-for="g in gradeOptions" :key="g" :value="g">{{ g }}</el-checkbox>
             </el-checkbox-group>
           </el-form-item>
-          <el-form-item label="适用班型">
-            <el-radio-group v-model="layerForm.class_type" @change="onLayerClassTypeChange">
-              <el-radio value="I">国际班</el-radio>
-              <el-radio value="N">综素班</el-radio>
-              <el-radio value="ALL">全部</el-radio>
-            </el-radio-group>
-            <span class="form-hint">选择此分层组适用的班级类型</span>
-          </el-form-item>
-          <el-form-item v-if="layerForm.grades.length > 0" label="涉及班级">
-            <div class="affected-classes">
-              <el-tag v-for="c in affectedLayerClasses" :key="c.id" size="small" class="grade-tag">
+          <template v-if="layerForm.layer_scope !== 'SINGLE_CLASS'">
+            <el-form-item label="适用班型">
+              <el-radio-group v-model="layerForm.class_type" @change="onLayerClassTypeChange">
+                <el-radio value="I">国际班</el-radio>
+                <el-radio value="N">综素班</el-radio>
+                <el-radio value="ALL">全部</el-radio>
+              </el-radio-group>
+              <span class="form-hint">选择此分层组适用的班级类型</span>
+            </el-form-item>
+            <el-form-item v-if="layerForm.grades.length > 0" label="涉及班级">
+              <div class="affected-classes">
+                <el-tag v-for="c in affectedLayerClasses" :key="c.id" size="small" class="grade-tag">
+                  {{ c.name }}
+                </el-tag>
+                <span v-if="affectedLayerClasses.length === 0" class="form-hint">无匹配班级</span>
+              </div>
+            </el-form-item>
+          </template>
+          <el-form-item v-else label="分层班级">
+            <el-radio-group v-model="singleClassId" :disabled="!selectedGradeForSingle">
+              <el-radio
+                v-for="c in filteredClassesForSingle"
+                :key="c.id"
+                :value="c.id"
+              >
                 {{ c.name }}
-              </el-tag>
-              <span v-if="affectedLayerClasses.length === 0" class="form-hint">无匹配班级</span>
-            </div>
+              </el-radio>
+            </el-radio-group>
+            <div v-if="!selectedGradeForSingle" class="form-hint">请先选择年级</div>
+            <div v-else-if="filteredClassesForSingle.length === 0" class="form-hint">该年级暂无班级</div>
           </el-form-item>
           <el-form-item label="分层数量">
             <el-input-number v-model="layerForm.layer_count" :min="2" :max="10" />
@@ -280,6 +317,8 @@ const classList = ref([])
 const isEditing = ref(false)
 const editingId = ref(null)
 const selectedGradeForCombine = ref('')
+const selectedGradeForSingle = ref('')
+const singleClassId = ref(null)
 
 const gradeOptions = ['G1', 'G2', 'G3', 'G4', 'G5', 'G6', 'G7', 'G8', 'G9', 'G10', 'G11', 'G12']
 
@@ -288,8 +327,9 @@ const layerForm = ref({
   subject_id: null,
   subject_name: '',
   grades: [],
-  class_ids: [],        // 合班时使用；分层模式下也会自动填充
-  class_type: 'ALL',    // 分层模式的班型筛选：I/N/ALL
+  class_ids: [],
+  class_type: 'ALL',
+  layer_scope: 'GRADE',  // GRADE | CROSS_GRADE | SINGLE_CLASS
   layer_count: 2,
   teacher_ids: [],
   is_cross_grade: false,
@@ -297,6 +337,11 @@ const layerForm = ref({
   needs_continuous: true,
   description: ''
 })
+
+const resolveLayerScope = (group) => {
+  if (group.layer_scope) return group.layer_scope
+  return group.is_cross_grade ? 'CROSS_GRADE' : 'GRADE'
+}
 
 // 对话框标题
 const dialogTitle = computed(() => {
@@ -310,6 +355,16 @@ const dialogTitle = computed(() => {
 const filteredClassesForCombine = computed(() => {
   if (!selectedGradeForCombine.value) return []
   return classList.value.filter(c => c.grade === selectedGradeForCombine.value)
+})
+
+const filteredClassesForSingle = computed(() => {
+  if (!selectedGradeForSingle.value) return []
+  return classList.value.filter(c => c.grade === selectedGradeForSingle.value)
+})
+
+watch(singleClassId, (id) => {
+  if (layerForm.value.layer_scope !== 'SINGLE_CLASS') return
+  layerForm.value.class_ids = id ? [id] : []
 })
 
 // 根据分层数量动态生成教师选择数组
@@ -343,6 +398,7 @@ const resetForm = () => {
     grades: [],
     class_ids: [],
     class_type: 'ALL',
+    layer_scope: 'GRADE',
     layer_count: 2,
     teacher_ids: [null, null],
     is_cross_grade: false,
@@ -351,6 +407,8 @@ const resetForm = () => {
     description: ''
   }
   selectedGradeForCombine.value = ''
+  selectedGradeForSingle.value = ''
+  singleClassId.value = null
   isEditing.value = false
   editingId.value = null
 }
@@ -372,13 +430,17 @@ const getClassName = (classId) => {
 // 获取分组类型标签
 const getGroupTypeTag = (group) => {
   if (group.group_type === 'COMBINE') return 'success'
-  if (group.is_cross_grade) return 'danger'
-  return 'info'  // 默认使用 info 而不是空字符串
+  const scope = resolveLayerScope(group)
+  if (scope === 'CROSS_GRADE') return 'danger'
+  if (scope === 'SINGLE_CLASS') return 'warning'
+  return 'info'
 }
 
 const getGroupTypeLabel = (group) => {
   if (group.group_type === 'COMBINE') return '合班上课'
-  if (group.is_cross_grade) return '跨年级分层'
+  const scope = resolveLayerScope(group)
+  if (scope === 'CROSS_GRADE') return '跨年级分层'
+  if (scope === 'SINGLE_CLASS') return '单一班级分层'
   return '同年级分层'
 }
 
@@ -422,6 +484,7 @@ const loadClasses = async () => {
 // 分层模式下：根据选中年级和班型，计算涉及的班级列表
 const affectedLayerClasses = computed(() => {
   if (layerForm.value.group_type === 'COMBINE') return []
+  if (layerForm.value.layer_scope === 'SINGLE_CLASS') return []
   if (layerForm.value.grades.length === 0) return []
   
   return classList.value.filter(c => {
@@ -445,7 +508,35 @@ const onLayerClassTypeChange = () => {
 // 更新分层模式的 class_ids（自动从年级+班型推算）
 const updateLayerClassIds = () => {
   if (layerForm.value.group_type === 'COMBINE') return
+  if (layerForm.value.layer_scope === 'SINGLE_CLASS') return
   layerForm.value.class_ids = affectedLayerClasses.value.map(c => c.id)
+}
+
+const onLayerScopeChange = () => {
+  const scope = layerForm.value.layer_scope
+  layerForm.value.is_cross_grade = scope === 'CROSS_GRADE'
+  if (scope === 'SINGLE_CLASS') {
+    layerForm.value.class_type = 'ALL'
+    if (layerForm.value.grades.length === 1) {
+      selectedGradeForSingle.value = layerForm.value.grades[0]
+    } else {
+      selectedGradeForSingle.value = ''
+      layerForm.value.grades = []
+    }
+    singleClassId.value = layerForm.value.class_ids[0] || null
+  } else {
+    selectedGradeForSingle.value = ''
+    singleClassId.value = null
+    updateLayerClassIds()
+  }
+}
+
+const onSingleClassGradeChange = () => {
+  layerForm.value.grades = selectedGradeForSingle.value
+    ? [selectedGradeForSingle.value]
+    : []
+  singleClassId.value = null
+  layerForm.value.class_ids = []
 }
 
 // 加载分层组数据
@@ -521,6 +612,22 @@ const editLayerGroup = (group) => {
     }
   }
   
+  const layerScope = resolveLayerScope(group)
+
+  if (layerScope === 'SINGLE_CLASS') {
+    const cid = (group.class_ids || [])[0]
+    singleClassId.value = cid || null
+    if (cid) {
+      const cls = classList.value.find(c => c.id === cid)
+      selectedGradeForSingle.value = cls?.grade || (group.grades || [])[0] || ''
+    } else {
+      selectedGradeForSingle.value = (group.grades || [])[0] || ''
+    }
+  } else {
+    selectedGradeForSingle.value = ''
+    singleClassId.value = null
+  }
+
   layerForm.value = {
     group_type: groupType,
     subject_id: group.subject_id,
@@ -528,9 +635,10 @@ const editLayerGroup = (group) => {
     grades: [...(group.grades || [])],
     class_ids: [...(group.class_ids || [])],
     class_type: classType,
+    layer_scope: layerScope,
     layer_count: group.layer_count || 1,
     teacher_ids: teacherIds,
-    is_cross_grade: group.is_cross_grade || false,
+    is_cross_grade: layerScope === 'CROSS_GRADE',
     weekly_hours: group.weekly_hours,
     needs_continuous: group.needs_continuous,
     description: group.description || ''
@@ -561,8 +669,19 @@ const saveLayerGroup = async () => {
       return
     }
   } else {
-    // 分层模式验证
-    if (layerForm.value.grades.length === 0) {
+    const scope = layerForm.value.layer_scope
+    if (scope === 'SINGLE_CLASS') {
+      if (!selectedGradeForSingle.value) {
+        ElMessage.warning('请选择年级')
+        return
+      }
+      if (!singleClassId.value) {
+        ElMessage.warning('请选择要分层的班级')
+        return
+      }
+      layerForm.value.grades = [selectedGradeForSingle.value]
+      layerForm.value.class_ids = [singleClassId.value]
+    } else if (layerForm.value.grades.length === 0) {
       ElMessage.warning('请选择适用年级')
       return
     }
@@ -586,7 +705,8 @@ const saveLayerGroup = async () => {
     class_ids: layerForm.value.class_ids,
     layer_count: isCombine ? 1 : layerForm.value.layer_count,
     teacher_ids: layerForm.value.teacher_ids.filter(id => id !== null && id > 0),
-    is_cross_grade: isCombine ? false : layerForm.value.is_cross_grade,
+    layer_scope: isCombine ? 'GRADE' : layerForm.value.layer_scope,
+    is_cross_grade: isCombine ? false : layerForm.value.layer_scope === 'CROSS_GRADE',
     weekly_hours: layerForm.value.weekly_hours,
     needs_continuous: layerForm.value.needs_continuous,
     description: layerForm.value.description
@@ -684,6 +804,11 @@ const deleteLayerGroup = async (group) => {
     border-color: #a7f3d0;
     background: linear-gradient(135deg, #fff 0%, #ecfdf5 100%);
   }
+
+  &.single-class-card {
+    border-color: #fcd34d;
+    background: linear-gradient(135deg, #fff 0%, #fffbeb 100%);
+  }
   
   .group-header {
     display: flex;
@@ -742,6 +867,10 @@ const deleteLayerGroup = async (group) => {
           color: #dc2626;
           font-size: 12px;
           margin-left: 8px;
+
+          &.single-hint {
+            color: #b45309;
+          }
         }
       }
     }
@@ -756,6 +885,12 @@ const deleteLayerGroup = async (group) => {
   margin-left: 8px;
   color: var(--text-secondary);
   font-size: 12px;
+
+  &.block-hint {
+    display: block;
+    margin-left: 0;
+    margin-top: 6px;
+  }
 }
 
 // 教师选择列表样式
