@@ -23,6 +23,12 @@ from ..data.models import (
     ScheduleData, Task, LayerGroup, Class, Teacher, Subject, Venue,
     ScheduleRecord
 )
+from ..fixed_slots import (
+    is_class_meeting_task,
+    session_conflicts_class_meeting_slot,
+    collect_homeroom_teacher_ids,
+    CLASS_MEETING_PERIOD,
+)
 
 
 # ============================================================
@@ -124,9 +130,11 @@ class SessionBuilder:
                 dept,
             )
 
-        # ---------- 2. 处理非分层任务 ----------
+        # ---------- 2. 处理非分层任务（班会由固定时段预置，不参与排课） ----------
         for task in self.data.tasks:
             if task.id in layer_task_ids:
+                continue
+            if is_class_meeting_task(self.data, task):
                 continue
 
             cls = self.data.get_class(task.class_id)
@@ -241,6 +249,7 @@ class CPScheduleSolver:
         self._meeting_vars: Dict[int, Dict[Tuple[int, int], any]] = {}
         # 组会结果 {group_id: {"day": int, "period": int, "group_name": str}}
         self._meeting_results: Dict[int, dict] = {}
+        self._homeroom_teacher_ids: Set[int] = set()
 
     # ----------------------------------------------------------
     # 主入口
@@ -289,6 +298,8 @@ class CPScheduleSolver:
 
         if meeting_slots:
             self._meeting_slots = meeting_slots
+
+        self._homeroom_teacher_ids = collect_homeroom_teacher_ids(self.data)
 
         # 1. 构建 sessions
         print("\n>>> [CP-SAT] 构建排课会话...")
@@ -399,6 +410,12 @@ class CPScheduleSolver:
                 if session.duration > 1 and period <= 5 < end_period:
                     continue
 
+                # 周五最后一节为固定班会，行政班课程不可占用
+                if session_conflicts_class_meeting_slot(
+                    day, period, session.duration, session.class_ids,
+                ):
+                    continue
+
                 # 教师时间可用性检查（硬约束）
                 # 同时检查 unavailable_slots 和 daily_shifts，使用 session.department 进行学部感知
                 available = True
@@ -409,6 +426,14 @@ class CPScheduleSolver:
                             if not teacher.is_available(day, p, session.department):
                                 available = False
                                 break
+                        # 班主任周五班会时段不可排其他课
+                        if (
+                            day == 5
+                            and p == CLASS_MEETING_PERIOD
+                            and tid in self._homeroom_teacher_ids
+                        ):
+                            available = False
+                            break
                     if not available:
                         break
                 if not available:

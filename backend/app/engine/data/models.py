@@ -624,6 +624,7 @@ class ScheduleRecord:
         layer_group_id: 分层组ID（如果是分层课）
         course_class_id: A-Level 课程班ID（如果是 A-Level 课程）
         item_type: 课程类型（homeroom/alevel）
+        is_locked: 是否锁定（固定时段如班会）
     """
     task_id: int
     teacher_id: int
@@ -635,6 +636,7 @@ class ScheduleRecord:
     layer_group_id: Optional[int] = None
     course_class_id: Optional[int] = None
     item_type: str = "homeroom"
+    is_locked: bool = False
     
     @property
     def time_slot(self) -> str:

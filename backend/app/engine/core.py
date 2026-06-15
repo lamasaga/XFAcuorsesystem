@@ -19,6 +19,10 @@ from sqlalchemy import func
 
 from .data.loader import load_schedule_data
 from .data.models import ScheduleRecord, ScheduleData
+from .fixed_slots import (
+    build_fixed_class_meeting_records,
+    is_class_meeting_task,
+)
 from .solver import CPScheduleSolver, DEFAULT_SOFT_CONFIG
 from .alevel_solver import AlevelScheduleSolver, AlevelScheduleRecord
 from ..modules.schedules.models import Schedule, ScheduleItem, ScheduleConfig
@@ -94,6 +98,9 @@ class ScheduleEngine:
                 detail = "排课失败：求解器未能找到可行解，请检查数据配置或约束设置"
             raise RuntimeError(detail)
 
+        # 4.5 固定时段：周五最后一节班会（不参与求解，直接并入课表）
+        fixed_meeting_records = build_fixed_class_meeting_records(self.data)
+
         # 5. A-Level 排课（顺序排课模式：行政班先排，A-Level 后排）
         alevel_records_map = {}  # {solution_index: [AlevelScheduleRecord, ...]}
         if self.data.alevel_sessions:
@@ -101,8 +108,9 @@ class ScheduleEngine:
             for i, records in enumerate(solutions):
                 if not records:
                     continue
-                # 从行政班排课结果构建教师占用映射
-                teacher_occupied = self._build_teacher_occupied(records)
+                # 从行政班排课结果构建教师占用映射（含固定班会）
+                merged = list(records) + fixed_meeting_records
+                teacher_occupied = self._build_teacher_occupied(merged)
                 alevel_solver = AlevelScheduleSolver(
                     self.data,
                     teacher_occupied=teacher_occupied,
@@ -120,11 +128,12 @@ class ScheduleEngine:
         for i, records in enumerate(solutions):
             if not records:
                 continue
+            merged_records = list(records) + fixed_meeting_records
             suffix = f"_方案{chr(65 + i)}" if plan_count > 1 else ""
-            summary = self._build_summary(records, 0)
+            summary = self._build_summary(merged_records, 0)
             alevel_records = alevel_records_map.get(i, [])
             schedule_id = self._save_results(
-                records, alevel_records, suffix, batch_id, summary["score"],
+                merged_records, alevel_records, suffix, batch_id, summary["score"],
                 meeting_info=meeting_json,
             )
             summary["schedule_id"] = schedule_id
@@ -220,13 +229,14 @@ class ScheduleEngine:
             self.db.add(ScheduleItem(
                 schedule_id=schedule.id,
                 item_type="homeroom",
-                task_id=record.task_id,
+                task_id=record.task_id or None,
                 teacher_id=record.teacher_id,
                 class_id=record.class_id,
                 subject_id=record.subject_id,
                 day=record.day,
                 period=record.period,
                 duration=record.duration,
+                is_locked=getattr(record, "is_locked", False),
             ))
         
         # 保存 A-Level 排课结果
@@ -304,7 +314,10 @@ class ScheduleEngine:
         self, records: List[ScheduleRecord], schedule_id: int,
     ) -> Dict[str, Any]:
         total_tasks = len(self.data.tasks)
-        scheduled_ids = {r.task_id for r in records}
+        scheduled_ids = {r.task_id for r in records if r.task_id}
+        for task in self.data.tasks:
+            if is_class_meeting_task(self.data, task):
+                scheduled_ids.add(task.id)
         scheduled_tasks = len({
             tid for tid in scheduled_ids if self.data.get_task(tid)
         })
