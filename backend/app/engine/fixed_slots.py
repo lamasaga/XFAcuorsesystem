@@ -72,6 +72,61 @@ def resolve_class_meeting_teacher(
     return None
 
 
+def class_has_meeting_task(data: ScheduleData, class_id: int) -> bool:
+    return any(
+        is_class_meeting_task(data, t)
+        for t in data.tasks
+        if t.class_id == class_id
+    )
+
+
+def compute_meeting_hour_trim_task_ids(data: ScheduleData) -> dict[int, int]:
+    """
+    无班会教学任务时，从该班某一普通任务扣 1 课时，为周五固定班会腾出时段。
+    若已有班会任务，则无需扣减（班会任务本身已不参与排课）。
+    """
+    trim: dict[int, int] = {}
+    subject = find_class_meeting_subject(data)
+    subject_id = subject.id if subject else None
+
+    for cls in data.classes:
+        if class_has_meeting_task(data, cls.id):
+            continue
+        if find_class_meeting_task_for_class(data, cls.id, subject_id):
+            continue
+
+        candidates = [
+            t for t in data.tasks
+            if t.class_id == cls.id
+            and not is_class_meeting_task(data, t)
+            and not t.layer_group_id
+        ]
+        if not candidates:
+            continue
+
+        def sort_key(t: Task):
+            subj = data.get_subject(t.subject_id)
+            is_main = subj.is_main if subj else True
+            return (is_main, t.weekly_hours, t.id)
+
+        pick = sorted(candidates, key=sort_key)[0]
+        if pick.weekly_hours >= 1:
+            trim[cls.id] = pick.id
+
+    if trim:
+        print(f"    [固定时段] {len(trim)} 个班无班会任务，各扣减 1 课时以预留周五班会")
+    return trim
+
+
+def effective_task_weekly_hours(
+    data: ScheduleData, task: Task, trim_task_ids: dict[int, int],
+) -> int:
+    hours = task.weekly_hours
+    if trim_task_ids.get(task.class_id) == task.id:
+        hours -= 1
+    return max(0, hours)
+
+
 def session_conflicts_class_meeting_slot(
     day: int, start_period: int, duration: int, class_ids: List[int],
 ) -> bool:

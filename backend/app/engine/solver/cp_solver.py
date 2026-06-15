@@ -27,6 +27,8 @@ from ..fixed_slots import (
     is_class_meeting_task,
     session_conflicts_class_meeting_slot,
     collect_homeroom_teacher_ids,
+    compute_meeting_hour_trim_task_ids,
+    effective_task_weekly_hours,
     CLASS_MEETING_PERIOD,
 )
 
@@ -91,6 +93,7 @@ class SessionBuilder:
         sessions: List[ScheduleSession] = []
         sid = 0
         layer_task_ids: Set[int] = set()
+        meeting_trim_task_ids = compute_meeting_hour_trim_task_ids(self.data)
 
         # ---------- 1. 处理分层组 ----------
         for group in self.data.layer_groups:
@@ -142,10 +145,15 @@ class SessionBuilder:
             dept = cls.department if cls else "PRIMARY"
             subject = self.data.get_subject(task.subject_id)
             is_main = subject.is_main if subject else False
+            weekly_hours = effective_task_weekly_hours(
+                self.data, task, meeting_trim_task_ids,
+            )
+            if weekly_hours <= 0:
+                continue
 
             sid = self._create_sessions_for_hours(
                 sessions, sid, [task.id], [task.teacher_id], [task.class_id],
-                task.subject_id, task.subject_name, task.weekly_hours,
+                task.subject_id, task.subject_name, weekly_hours,
                 task.is_continuous, task.required_venue_type, None,
                 [grade], is_main, dept,
             )
