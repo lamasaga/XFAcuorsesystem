@@ -55,8 +55,6 @@ def find_class_meeting_task_for_class(
             continue
         if is_class_meeting_task(data, task):
             return task
-        if subject_id and task.subject_id == subject_id:
-            return task
     return None
 
 
@@ -80,50 +78,68 @@ def class_has_meeting_task(data: ScheduleData, class_id: int) -> bool:
     )
 
 
+# 周五第 8 节固定班会后，求解器每周最多可排的行政班课时（9*4 + 7）
+MAX_WEEKLY_SOLVER_PERIODS = 43
+
+
 def compute_meeting_hour_trim_task_ids(data: ScheduleData) -> dict[int, int]:
     """
-    无班会教学任务时，从该班某一普通任务扣 1 课时，为周五固定班会腾出时段。
-    若已有班会任务，则无需扣减（班会任务本身已不参与排课）。
+    为预留周五班会时段，当某班可排课时超过上限时，从普通课任务扣减课时。
+    返回 {task_id: 扣减节数}。
     """
     trim: dict[int, int] = {}
-    subject = find_class_meeting_subject(data)
-    subject_id = subject.id if subject else None
 
     for cls in data.classes:
-        if class_has_meeting_task(data, cls.id):
-            continue
-        if find_class_meeting_task_for_class(data, cls.id, subject_id):
-            continue
-
         candidates = [
             t for t in data.tasks
             if t.class_id == cls.id
             and not is_class_meeting_task(data, t)
             and not t.layer_group_id
         ]
-        if not candidates:
+        layer_hours = sum(
+            t.weekly_hours for t in data.tasks
+            if t.class_id == cls.id and t.layer_group_id
+        )
+        if not candidates and layer_hours <= MAX_WEEKLY_SOLVER_PERIODS:
             continue
 
-        def sort_key(t: Task):
-            subj = data.get_subject(t.subject_id)
-            is_main = subj.is_main if subj else True
-            return (is_main, t.weekly_hours, t.id)
+        remaining = {t.id: t.weekly_hours for t in candidates}
+        total = sum(remaining.values()) + layer_hours
 
-        pick = sorted(candidates, key=sort_key)[0]
-        if pick.weekly_hours >= 1:
-            trim[cls.id] = pick.id
+        def pick_task_id() -> Optional[int]:
+            pool = [tid for tid, h in remaining.items() if h > 0]
+            if not pool:
+                return None
+            tasks = [t for t in candidates if t.id in pool]
 
+            def sort_key(t: Task):
+                subj = data.get_subject(t.subject_id)
+                is_main = subj.is_main if subj else True
+                return (is_main, remaining[t.id], t.id)
+
+            return sorted(tasks, key=sort_key)[0].id
+
+        while total > MAX_WEEKLY_SOLVER_PERIODS:
+            tid = pick_task_id()
+            if tid is None:
+                break
+            remaining[tid] -= 1
+            trim[tid] = trim.get(tid, 0) + 1
+            total -= 1
+
+    trimmed_classes = len({t.class_id for t in data.tasks if t.id in trim})
     if trim:
-        print(f"    [固定时段] {len(trim)} 个班无班会任务，各扣减 1 课时以预留周五班会")
+        print(
+            f"    [固定时段] {trimmed_classes} 个班可排课时超出 {MAX_WEEKLY_SOLVER_PERIODS}，"
+            f"已扣减 {sum(trim.values())} 课时以预留周五班会"
+        )
     return trim
 
 
 def effective_task_weekly_hours(
     data: ScheduleData, task: Task, trim_task_ids: dict[int, int],
 ) -> int:
-    hours = task.weekly_hours
-    if trim_task_ids.get(task.class_id) == task.id:
-        hours -= 1
+    hours = task.weekly_hours - trim_task_ids.get(task.id, 0)
     return max(0, hours)
 
 
